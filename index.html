@@ -115,7 +115,7 @@ input,select,textarea{font-family:inherit;color:var(--text);font-size:14px}
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 17</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 18</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -152,17 +152,22 @@ input,select,textarea{font-family:inherit;color:var(--text);font-size:14px}
     <button class="btn bs bw" onclick="showStep('sW')">← Retour</button>
   </div>
 
-  <!-- STEP 1: Choose Motif -->
-  <div class="step" id="s1">
-    <div class="card">
-      <h2>📋 Choisir le type de séance</h2>
-      <div class="chips" id="motifChips"></div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn bs" onclick="showStep('sW')" style="flex:1">← Retour</button>
-      <button class="btn bp" onclick="goStep(2)" id="btnS1" style="flex:2">Suivant →</button>
-    </div>
+<!-- STEP 1: Choose Motif -->
+<div class="step" id="s1">
+  <div class="card">
+    <h2>📋 Choisir le type de séance</h2>
+    <div class="chips" id="motifChips"></div>
   </div>
+
+  <div style="display:flex;gap:8px">
+    <button class="btn bs" onclick="showStep('sW')" style="flex:1">← Retour</button>
+    <button class="btn bp" onclick="goStep(2)" id="btnS1" style="flex:2">Suivant →</button>
+  </div>
+
+  <div id="motifDescZone"
+       style="margin-top:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--text2);line-height:1.5;display:none;white-space:pre-wrap">
+  </div>
+</div>
 
   <!-- STEP 2: Choose Date -->
   <div class="step" id="s2">
@@ -285,8 +290,8 @@ input,select,textarea{font-family:inherit;color:var(--text);font-size:14px}
 <div class="toast" id="tst"></div>
 
 <!-- Close dialog -->
-<div id="closeOverlay" style="display:none;position:fixed;inset:0;background:rgba(26,26,46,.85);z-index:600;justify-content:center;align-items:center">
-  <div style="background:var(--card);border-radius:16px;padding:24px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.2)">
+<div id="closeOverlay" style="display:none;position:fixed;inset:0;background:rgba(26,26,46,1);z-index:600;justify-content:center;align-items:center">
+  <div style="background:var(--card);border-radius:16px;padding:24px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
     <div style="font-size:36px;margin-bottom:8px">👋</div>
     <div style="font-weight:700;font-size:15px;margin-bottom:6px">Fermer PhysioFlow ?</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:16px">À bientôt !</div>
@@ -581,18 +586,15 @@ function renderMotifs(){
   renderMotifDesc();
 }
 function renderMotifDesc(){
-  var zone=document.getElementById('motifDescZone');
-  if(!zone){
-    zone=document.createElement('div');zone.id='motifDescZone';
-    zone.style.cssText='margin-top:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--text2);line-height:1.5;display:none';
-    var navBtns=document.querySelector('#s1 .nav');
-    if(navBtns)navBtns.parentNode.insertBefore(zone,navBtns);
-  }
-  if(SEL.motif&&SEL.motif.description){
-    zone.style.display='block';
-    zone.innerHTML='<b>ℹ️ '+esc(SEL.motif.label)+'</b><br>'+esc(SEL.motif.description);
-  }else{
-    zone.style.display='none';
+  var zone = document.getElementById('motifDescZone');
+  if(!zone) return;
+
+  if(SEL.motif && SEL.motif.description){
+    zone.style.display = 'block';
+    zone.innerHTML = '<b>ℹ️ ' + esc(SEL.motif.label) + '</b><br>' + esc(SEL.motif.description);
+  } else {
+    zone.style.display = 'none';
+    zone.innerHTML = '';
   }
 }
 
