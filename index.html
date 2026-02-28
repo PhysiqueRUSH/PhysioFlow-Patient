@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1923">
+<link rel="manifest" href="manifest.json">
+<title>PhysioFlow — Réservation</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f2efe9;--bg2:#e8e4dc;--surface:#fff;--surface2:#faf9f6;
+  --text:#1a1a2e;--text2:#6a6a7e;--text3:#8a8a9a;
+  --accent:#2a7c6f;--accent2:#3bb5a0;--accentbg:rgba(42,124,111,.07);
+  --border:#ccc8bf;--border2:#ddd8cf;
+  --shadow:0 4px 16px rgba(0,0,0,.08);
+  --radius:8px;--radiuslg:14px;--radiusxl:20px;
+  --c0:#4a80c4;--c0bg:#dce7f5;
+  --c1:#e07a3a;--c1bg:#fce8d8;
+  --c2:#7b5bbf;--c2bg:#ece4f8;
+  --c3:#c44a6a;--c3bg:#fce0e8;
+  --c4:#3aad5c;--c4bg:#d8f2e0;
+  --c5:#c4a030;--c5bg:#f8f2d8;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:inherit}
+input,select,textarea{font-family:inherit;color:var(--text);font-size:14px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.logo{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:16px;color:var(--accent);letter-spacing:-.5px}
+.logo b{color:var(--text)}
+.logo-sub{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+
+.main{max-width:520px;margin:0 auto;padding:16px}
+
+/* Steps */
+.step{display:none;animation:fadeIn .3s ease}
+.step.on{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.card{background:var(--surface);border-radius:var(--radiuslg);padding:16px;margin-bottom:12px;border:1px solid var(--border2)}
+.card h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.card h3{font-size:13px;font-weight:600;margin:12px 0 6px;color:var(--text2)}
+
+.btn{padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:5px;transition:transform .1s}
+.btn:active{transform:scale(.97)}
+.bp{background:var(--accent);color:#fff}
+.bs{background:var(--bg);border:1.5px solid var(--border)}
+.bw{width:100%}
+.bd{background:#e74c3c;color:#fff}
+
+.fg{margin-bottom:12px}
+.fg label{display:block;font-size:11px;font-weight:600;color:var(--text2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+.fg input,.fg select,.fg textarea{width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg);outline:none}
+.fg input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(42,124,111,.1)}
+.fr{display:flex;gap:8px}
+.fr .fg{flex:1}
+
+/* Motif chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{padding:10px 16px;border-radius:var(--radiuslg);font-size:13px;font-weight:600;cursor:pointer;border:2px solid transparent;transition:all .15s}
+.chip:active{transform:scale(.96)}
+.chip.sel{border-color:var(--text);transform:scale(1.03)}
+
+/* Calendar */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:10px}
+.cal-hdr{text-align:center;font-size:16px;font-weight:700;color:var(--text2);padding:6px 0}
+.cal-day{text-align:center;padding:14px 2px;border-radius:var(--radius);font-size:22px;font-weight:700;cursor:pointer;transition:all .12s}
+.cal-day:active{transform:scale(.92)}
+.cal-day.dis{opacity:.2;pointer-events:none}
+.cal-day.sel{background:var(--accent);color:#fff}
+.cal-day.today{outline:2px solid var(--accent);outline-offset:-2px}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-nav .month{font-weight:700;font-size:20px}
+.cal-nav .btn{font-size:28px;padding:6px 16px}
+
+/* Time slots */
+.slots{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.slot{padding:10px 16px;border-radius:var(--radius);font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--bg);border:1.5px solid var(--border);cursor:pointer;transition:all .12s}
+.slot:active{transform:scale(.95)}
+.slot.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
+.slot.taken{opacity:.25;pointer-events:none;text-decoration:line-through}
+
+/* Summary */
+.sum{background:var(--accentbg);border-radius:var(--radiuslg);padding:16px;margin-bottom:16px}
+.sum .row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
+.sum .row b{color:var(--accent)}
+
+/* Toast */
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--text);color:#fff;padding:9px 18px;border-radius:var(--radius);font-size:12px;font-weight:500;z-index:300;opacity:0;transition:.25s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.loader{text-align:center;padding:40px;color:var(--text2)}
+.loader .spin{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;margin-bottom:8px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.success-icon{font-size:56px;text-align:center;margin:16px 0}
+
+.install-banner{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:12px 16px;z-index:500;display:none;animation:slideUp .3s ease}
+.install-banner.show{display:block}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:none}}
+.install-banner .ib-content{max-width:520px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.install-banner .ib-icon{font-size:28px;flex-shrink:0}
+.install-banner .ib-text{flex:1;font-size:12px;color:var(--text2);line-height:1.4}
+.install-banner .ib-text b{color:var(--text);font-size:13px}
+.install-banner .ib-actions{display:flex;gap:6px;flex-shrink:0}
+.install-banner .ib-close{font-size:18px;color:var(--text3);background:none;border:none;padding:4px;cursor:pointer}
+
+/* Onboarding tutorial */
+.tuto-target{position:relative;z-index:10;box-shadow:0 0 0 3px var(--accent),0 0 15px rgba(42,124,111,.4)!important;border-radius:12px!important;animation:tutoPulse 1.5s ease infinite}
+@keyframes tutoPulse{0%,100%{box-shadow:0 0 0 3px var(--accent),0 0 15px rgba(42,124,111,.4)}50%{box-shadow:0 0 0 5px var(--accent),0 0 25px rgba(42,124,111,.6)}}
+.tuto-tip{position:fixed;z-index:9999;background:#1a1a2e;color:#fff;border-radius:14px;padding:14px 16px;max-width:290px;font-size:13px;line-height:1.55;box-shadow:0 6px 24px rgba(0,0,0,.35);display:none;left:50%!important;transform:translateX(-50%);width:calc(100vw - 24px);max-width:340px}
+.tuto-tip b{color:#5ddbc0}
+.tuto-step{display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:8px}
+.tuto-skip{font-size:11px;color:rgba(255,255,255,.5);background:none;border:none;cursor:pointer;padding:2px 6px}
+.tuto-next{font-size:12px;font-weight:600;color:#1a1a2e;background:#5ddbc0;border:none;border-radius:8px;padding:6px 14px;cursor:pointer}
+/* Calendar glow during tutorial */
+@keyframes calGlow{0%,100%{box-shadow:0 0 4px rgba(42,124,111,.3)}50%{box-shadow:0 0 12px rgba(42,124,111,.7)}}
+.cal-day.tuto-glow:not(.dis){animation:calGlow 1.2s ease infinite;background:rgba(42,124,111,.1)}
+.cal-nav .btn.tuto-glow{animation:calGlow 1.2s ease infinite}
+/* Glow guide */
+@keyframes guideGlow{0%,100%{box-shadow:0 0 0 0 rgba(42,124,111,.3)}50%{box-shadow:0 0 0 10px rgba(42,124,111,.45)}}
+@keyframes guidePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+.guide-glow{animation:guideGlow 1.3s ease infinite,guidePulse 1.3s ease infinite;position:relative;z-index:2}
+.guide-arrow{position:absolute;font-size:28px;z-index:3;animation:arrowBob .8s ease infinite;pointer-events:none}
+@keyframes arrowBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+/* Install gate */
+.install-gate{position:fixed;inset:0;background:#fff;z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;overflow-y:auto}
+.install-gate h2{font-size:20px;margin:10px 0 6px;color:var(--text)}
+.install-gate .ig-steps{text-align:left;font-size:15px;line-height:2.2;margin:16px auto;max-width:320px}
+.install-gate .ig-steps b{color:var(--accent)}
+/* Help button */
+.help-btn{position:fixed;bottom:16px;left:16px;width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.2);z-index:400;cursor:pointer;border:none}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div style="flex:1">
+    <div class="logo"><b>Physio</b>Flow</div>
+    <div class="logo-sub">Réservation en ligne</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 33</div>
+  </div>
+  <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
+</div>
+
+<!-- Help button - always visible -->
+<button class="help-btn" id="helpBtn" onclick="restartTutorial()" title="Aide">?</button>
+
+<div class="main">
+  <!-- STEP 0: Loading -->
+  <div class="step on" id="s0">
+    <div class="loader"><div class="spin"></div><div>Chargement des disponibilités...</div></div>
+  </div>
+
+  <!-- STEP W: Welcome -->
+  <div class="step" id="sW">
+    <div class="card" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">👋</div>
+      <h2 style="justify-content:center" id="welcomeTitle">Bienvenue</h2>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Que souhaitez-vous faire ?</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn bp bw" onclick="tryStartBooking()" style="padding:16px;font-size:15px">📅 Prendre un rendez-vous</button>
+        <button class="btn bs bw" onclick="goMyBookings()" style="padding:16px;font-size:15px">📋 Voir / annuler mes rendez-vous</button>
+      </div>
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label>Votre numéro de téléphone (pour retrouver vos RDV)</label>
+      <input type="tel" id="myPhone" placeholder="Votre numéro de téléphone portable..." oninput="saveMyPhone()">
+    </div>
+  </div>
+
+  <!-- STEP MB: My Bookings -->
+  <div class="step" id="sMB">
+    <div class="card">
+      <h2>📋 Mes rendez-vous</h2>
+      <div id="myBookingsList"></div>
+    </div>
+    <button class="btn bs bw" onclick="showStep('sW')">← Retour</button>
+  </div>
+
+<!-- STEP 1: Choose Motif -->
+<div class="step" id="s1">
+  <div class="card">
+    <h2>📋 Choisir le type de séance</h2>
+    <div class="chips" id="motifChips"></div>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button class="btn bs" onclick="showStep('sW')" style="flex:1">← Retour</button>
+    <button class="btn bp" onclick="goStep(2)" id="btnS1" style="flex:2">Suivant →</button>
+  </div>
+
+  <div id="motifDescZone"
+       style="margin-top:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--text2);line-height:1.5;display:none;white-space:pre-wrap">
+  </div>
+</div>
+
+  <!-- STEP 2: Choose Date -->
+  <div class="step" id="s2">
+    <div class="card">
+      <h2>📅 Choisir une date</h2>
+      <div class="cal-nav">
+        <button class="btn bs" onclick="calNav(-1)">‹</button>
+        <div class="month" id="calMonth"></div>
+        <button class="btn bs" onclick="calNav(1)">›</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bs" onclick="goStep(1)" style="flex:1">← Retour</button>
+      <button class="btn bp" onclick="goStep(3)" id="btnS2" style="flex:2">Suivant →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: Choose Time -->
+  <div class="step" id="s3">
+    <div class="card">
+      <h2>🕐 Choisir un horaire</h2>
+      <div id="dateLabel" style="font-size:13px;color:var(--text2);margin-bottom:10px"></div>
+      <div class="slots" id="timeSlots"></div>
+      <div id="noSlots" style="display:none;text-align:center;padding:20px;color:var(--text2)">Aucun créneau disponible pour cette date.</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bs" onclick="goStep(2)" style="flex:1">← Retour</button>
+      <button class="btn bp" onclick="goStep(4)" id="btnS3" style="flex:2">Suivant →</button>
+    </div>
+  </div>
+
+  <!-- STEP 4: Patient Info + Confirm -->
+  <div class="step" id="s4">
+    <div class="card">
+      <h2>👤 Vos informations</h2>
+      <div class="fr">
+        <div class="fg"><label>Nom</label><input id="pLast" placeholder="Votre nom" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="fg"><label>Prénom</label><input id="pFirst" placeholder="Votre prénom" oninput="this.value=this.value.toLowerCase().replace(/(?:^|\s|-)\S/g,function(c){return c.toUpperCase()})"></div>
+      </div>
+      <div class="fg"><label>Téléphone</label><input type="tel" id="pPhone" placeholder="Votre numéro de téléphone portable..."></div>
+      <div class="fg"><label>Remarque (optionnel)</label><textarea id="pNote" rows="2" placeholder="Précisions éventuelles..."></textarea></div>
+    </div>
+
+    <div class="sum" id="summary"></div>
+
+    <div style="margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="smsReminder" style="width:18px;height:18px;accent-color:var(--accent)">
+        📩 M'envoyer un SMS de rappel
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn bs" onclick="goStep(3)" style="flex:1">← Retour</button>
+      <button class="btn bp" onclick="doBook()" id="btnBook" style="flex:2">✅ Confirmer la réservation</button>
+    </div>
+  </div>
+
+  <!-- STEP 5: Confirmation -->
+  <div class="step" id="s5">
+    <div class="card" style="text-align:center">
+      <div class="success-icon">✅</div>
+      <h2 style="justify-content:center">Réservation confirmée !</h2>
+      <div id="confirmDetails" style="font-size:13px;color:var(--text2);margin-top:8px"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bp" style="flex:1" onclick="showStep('sW')">🏠 Accueil</button>
+      <button class="btn bs" style="flex:1" onclick="resetAll()">+ Nouvelle réservation</button>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn bs bw" id="btnAddCal" onclick="addToCalendar()" style="font-size:14px;padding:12px;flex-direction:column;gap:2px">📅 Ajouter à mon agenda<span id="calHelpTxt" style="font-size:10px;font-weight:400;opacity:.6"></span></button>
+    </div>
+    <script>
+    (function(){var t=document.getElementById('calHelpTxt');if(!t)return;
+    var iOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+    t.textContent=iOS?'Appuyez sur le fichier téléchargé pour l\'ouvrir':'Cliquez sur « Ouvrir » à la fin du téléchargement';
+    })();
+    </script>
+    <div style="margin-top:12px">
+      <button class="btn bs bw" onclick="showCancel()" style="color:var(--text2)">🚫 Annuler cette réservation</button>
+    </div>
+  </div>
+
+  <!-- STEP 6: Cancel -->
+  <div class="step" id="s6">
+    <div class="card">
+      <h2>🚫 Annuler votre réservation</h2>
+      <div id="cancelInfo" style="font-size:13px;color:var(--text2);margin-bottom:12px"></div>
+      <div class="fg"><label>Motif d'annulation</label>
+        <select id="cancelReason">
+          <option value="Empêchement personnel">Empêchement personnel</option>
+          <option value="Problème de santé">Problème de santé</option>
+          <option value="Changement d'horaire souhaité">Changement d'horaire souhaité</option>
+          <option value="Autre">Autre</option>
+        </select>
+      </div>
+      <div class="fg" id="cancelOtherWrap" style="display:none">
+        <label>Précisez</label><input id="cancelOtherInput" placeholder="Votre motif...">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bs" onclick="showStep('s5')" style="flex:1">← Retour</button>
+      <button class="btn bd" onclick="doCancel()" style="flex:2">🚫 Confirmer l'annulation</button>
+    </div>
+  </div>
+
+  <!-- Error state -->
+  <div class="step" id="sErr">
+    <div class="card" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">⚠️</div>
+      <h2 style="justify-content:center">Service indisponible</h2>
+      <div style="font-size:13px;color:var(--text2)">Impossible de charger les disponibilités. Réessayez plus tard.</div>
+    </div>
+    <button class="btn bs bw" onclick="location.reload()" style="margin-top:12px">🔄 Réessayer</button>
+  </div>
+
+  <!-- Refuse screen -->
+  <div class="step" id="sRefuse">
+    <div class="card" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">🙏</div>
+      <h2 style="justify-content:center" id="refuseTitle">Agenda saturé</h2>
+      <div id="refuseMsg" style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.6"></div>
+    </div>
+    <div id="refuseActions" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+  </div>
+</div>
+
+<div class="toast" id="tst"></div>
+
+<!-- Close dialog -->
+<div id="closeOverlay" style="display:none;position:fixed;inset:0;background:rgba(26,26,46,1);z-index:600;justify-content:center;align-items:center">
+  <div style="background:var(--card);border-radius:16px;padding:24px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
+    <div style="font-size:36px;margin-bottom:8px">👋</div>
+    <div style="font-weight:700;font-size:15px;margin-bottom:6px">Fermer PhysioFlow ?</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">À bientôt !</div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn bp" onclick="window.close()">Fermer</button>
+      <button class="btn bs" onclick="document.getElementById('closeOverlay').style.display='none'">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tutorial tip -->
+<div class="tuto-tip" id="tutoTip"></div>
+
+<!-- Install banner -->
+<div class="install-banner" id="installBanner">
+  <div class="ib-content">
+    <div class="ib-icon">📲</div>
+    <div class="ib-text" id="installText"><b>Installer PhysioFlow</b><br>Ajoutez l'application sur votre écran d'accueil pour un accès rapide.</div>
+    <div class="ib-actions">
+      <button class="btn bp" id="installBtn" style="font-size:12px;padding:8px 14px" onclick="doInstall()">Installer</button>
+      <button class="ib-close" onclick="dismissInstall()">✕</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script>
+/* ═══ FIREBASE ═══ */
+const firebaseConfig = {
+  apiKey: "AIzaSyDuV0ajg1O-Aw9CFFelwJlXy3_QDte7vPs",
+  authDomain: "physioflow-7fcfd.firebaseapp.com",
+  databaseURL: "https://physioflow-7fcfd-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "physioflow-7fcfd",
+  storageBucket: "physioflow-7fcfd.firebasestorage.app",
+  messagingSenderId: "1065055310692",
+  appId: "1:1065055310692:web:ae35f143f6aad77b8c6071"
+};
+firebase.initializeApp(firebaseConfig);
+const FB=firebase.database();
+const REF=FB.ref('physioflow');
+
+/* ═══ STATE ═══ */
+let CFG=null; // config from Pro: {days,motifs,openings,startH,endH,bookingRules}
+let APTS=[]; // existing appointments
+let SEL={motif:null,date:null,time:null};
+let calView=new Date();
+
+const CL_BG=['var(--c0bg)','var(--c1bg)','var(--c2bg)','var(--c3bg)','var(--c4bg)','var(--c5bg)'];
+const CL_BD=['var(--c0)','var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)'];
+const MN=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const DS=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+const DL=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+
+function dk(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function t2m(t){var p=t.split(':').map(Number);return p[0]*60+(p[1]||0)}
+function m2t(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function toast(m){var t=document.getElementById('tst');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show')},2200)}
+
+/* ═══ LOAD DATA FROM FIREBASE ═══ */
+function loadData(){
+  REF.child('config').once('value').then(function(snap){
+    CFG=snap.val();
+    if(!CFG||!CFG.motifs||!CFG.motifs.length){
+      showStep('sErr');return;
+    }
+    if(!CFG.bookingRules)CFG.bookingRules={minHoursBefore:2,maxDaysAhead:60};
+    return REF.child('appointments').once('value');
+  }).then(function(snap){
+    if(!snap)return;
+    var d=snap.val();
+    APTS=Array.isArray(d)?d:(d?Object.values(d):[]);
+    /* Show welcome screen with proName */
+    var proName=CFG.proName||'votre kinésithérapeute';
+    document.getElementById('welcomeTitle').textContent='Bienvenue chez '+proName;
+    /* Pre-fill phone from localStorage */
+    var saved=localStorage.getItem('pf_patient');
+    if(saved){
+      try{
+        var s=JSON.parse(saved);
+        if(s.phone)document.getElementById('myPhone').value=s.phone;
+      }catch(e){}
+    }
+    showStep('sW');
+  }).catch(function(e){
+    console.error(e);
+    showStep('sErr');
+  });
+
+  /* Listen for real-time appointment changes and re-render */
+  REF.child('appointments').on('value',function(snap){
+    var d=snap.val();
+    APTS=Array.isArray(d)?d:(d?Object.values(d):[]);
+    /* Re-render current view if on slots or my bookings */
+    var slotsStep=document.getElementById('s3');
+    if(slotsStep && slotsStep.classList.contains('on')) renderSlots();
+    var mbStep=document.getElementById('sMB');
+    if(mbStep && mbStep.classList.contains('on')) goMyBookings();
+  });
+}
+
+/* ═══ FCM FOR PATIENT NOTIFICATIONS ═══ */
+var _patientFCM=null;
+function initPatientFCM(){
+  if(!('Notification' in window)||!('serviceWorker' in navigator))return;
+  try{
+    _patientFCM=firebase.messaging();
+    _patientFCM.onMessage(function(payload){
+      var n=payload.notification||{};
+      toast('🔔 '+(n.body||'Notification'));
+      if(Notification.permission==='granted'){
+        new Notification(n.title||'PhysioFlow',{body:n.body||'',icon:'PhysioFlowPatient.png'});
+      }
+    });
+  }catch(e){console.warn('Patient FCM init error',e)}
+}
+function requestPatientNotif(patientId){
+  if(!('Notification' in window)||!_patientFCM)return;
+  if(Notification.permission==='denied')return;
+  var doRegister=function(){
+    navigator.serviceWorker.ready.then(function(reg){
+      _patientFCM.getToken({
+        vapidKey:'BHs6QaNOKQZvDDA_-Sgwk0raMLKJ1j41KxN9Qocl3p16kWsC5SDhCdGdGDpW6o-zCFScBaClxsaBMjhPt6IbLJM',
+        serviceWorkerRegistration:reg
+      }).then(function(token){
+        if(token && patientId){
+          REF.child('fcmTokens/patients/'+patientId).set(token);
+        }
+      }).catch(function(e){console.warn('Patient FCM token error',e)});
+    });
+  };
+  if(Notification.permission==='granted'){doRegister();return;}
+  Notification.requestPermission().then(function(p){
+    if(p==='granted')doRegister();
+  });
+}
+initPatientFCM();
+
+function saveMyPhone(){
+  var ph=(document.getElementById('myPhone').value||'').trim();
+  try{
+    var saved=JSON.parse(localStorage.getItem('pf_patient')||'{}');
+    saved.phone=ph;
+    localStorage.setItem('pf_patient',JSON.stringify(saved));
+  }catch(e){}
+}
+
+/* ═══ NAVIGATION ═══ */
+function tryStartBooking(){
+  /* Vacation mode check */
+  var vac=CFG.vacationMode||{};
+  if(vac.enabled){
+    var today=dk(new Date());
+    if(today>=vac.from && today<=vac.to){
+      showVacationScreen(vac.msg||'Le cabinet est fermé pour congés.');
+      return;
+    }
+  }
+  /* Early refuse check: use saved phone or prompt */
+  var rules=CFG.bookingRules||{};
+  var proName=CFG.proName||'votre kinésithérapeute';
+  var proPhone=CFG.proPhone||'';
+  var needsCheck=!!(rules.refuseNewPatients||CFG.refuseNewPatients||rules.refuseNewTreatments||CFG.refuseNewTreatments);
+  if(needsCheck){
+    var ph=(document.getElementById('myPhone').value||'').trim();
+    if(!ph||ph.length<8){
+      toast('Entrez votre numéro de téléphone ci-dessous');
+      document.getElementById('myPhone').focus();
+      return;
+    }
+    var normPh=ph.replace(/[\s\-\.]/g,'');
+    function phoneMatch(aPh){
+      if(!aPh)return false;
+      var n=aPh.replace(/[\s\-\.]/g,'');
+      return n===normPh || n.endsWith(normPh.slice(-9)) || normPh.endsWith(n.slice(-9));
+    }
+    if(rules.refuseNewPatients||CFG.refuseNewPatients){
+      var knownPhone=APTS.some(function(a){return phoneMatch(a.patientPhone) && !a.cancelled});
+      if(!knownPhone){
+        showRefuseScreen('newPatient',proName,proPhone);
+        return;
+      }
+    }
+    if(rules.refuseNewTreatments||CFG.refuseNewTreatments){
+      var inactiveMonths=(rules.refuseInactiveMonths||CFG.refuseInactiveMonths||3);
+      var cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-inactiveMonths);
+      var cutoffKey=dk(cutoff);
+      var hasRecent=APTS.some(function(a){return phoneMatch(a.patientPhone) && !a.cancelled && a.date>=cutoffKey});
+      if(!hasRecent){
+        var knownAtAll=APTS.some(function(a){return phoneMatch(a.patientPhone)});
+        showRefuseScreen(knownAtAll?'newTreatment':'newPatient',proName,proPhone);
+        return;
+      }
+    }
+  }
+  goStep(1);
+}
+function showStep(id){
+  document.querySelectorAll('.step').forEach(function(s){s.classList.remove('on')});
+  document.getElementById(id).classList.add('on');
+}
+function goStep(n){
+  if(n===1){
+    showStep('s1');renderMotifs();return;
+  }
+  if(n===2){
+    if(!SEL.motif){toast('Choisissez un type de séance');return;}
+    /* Auto-navigate calView to the month containing the first reservable date */
+    var _now=new Date();_now.setHours(0,0,0,0);
+    var _rules=CFG.bookingRules||{};
+    var _minH=_rules.minHoursBefore||2;
+    var _minDate=new Date(Date.now()+_minH*3600000);
+    var _maxDate=new Date();_maxDate.setDate(_maxDate.getDate()+(_rules.maxDaysAhead||60));
+    var _vacP=CFG.vacationPeriods||[];
+    if(CFG.vacationMode&&CFG.vacationMode.enabled&&!_vacP.length){
+      _vacP=[{from:CFG.vacationMode.from,to:CFG.vacationMode.to,msg:CFG.vacationMode.msg}];
+    }
+    var _found=false;
+    for(var _d=new Date(_now);_d<=_maxDate;_d.setDate(_d.getDate()+1)){
+      var _dk=dk(_d);
+      var _onVac=false;_vacP.forEach(function(v){if(v.from&&v.to&&_dk>=v.from&&_dk<=v.to)_onVac=true});
+      if(CFG.days.includes(_d.getDay())&&_d>=_minDate&&!_onVac){
+        calView=new Date(_d.getFullYear(),_d.getMonth(),1);
+        window._firstAvailDay=_d.getDate(); /* remember for renderCal */
+        window._firstAvailMonth=_d.getMonth();
+        window._firstAvailYear=_d.getFullYear();
+        _found=true;break;
+      }
+    }
+    if(!_found){calView=new Date();window._firstAvailDay=0}
+    showStep('s2');renderCal();return;
+  }
+  if(n===3){
+    if(!SEL.date){toast('Choisissez une date');return;}
+    showStep('s3');renderSlots();return;
+  }
+  if(n===4){
+    if(!SEL.time){toast('Choisissez un horaire');return;}
+    /* Pre-fill from localStorage */
+    try{
+      var saved=JSON.parse(localStorage.getItem('pf_patient')||'{}');
+      if(saved.lastName && !document.getElementById('pLast').value)document.getElementById('pLast').value=saved.lastName;
+      if(saved.firstName && !document.getElementById('pFirst').value)document.getElementById('pFirst').value=saved.firstName;
+      if(saved.phone && !document.getElementById('pPhone').value)document.getElementById('pPhone').value=saved.phone;
+      if(!document.getElementById('pPhone').value){
+        var myPh=document.getElementById('myPhone').value;
+        if(myPh)document.getElementById('pPhone').value=myPh;
+      }
+    }catch(e){}
+    showStep('s4');renderSummary();return;
+  }
+  showStep('s'+n);
+}
+
+/* ═══ MY BOOKINGS ═══ */
+function goMyBookings(){
+  var ph=(document.getElementById('myPhone').value||'').replace(/\s+/g,'').trim();
+  if(!ph||ph.length<8){toast('Entrez d\'abord votre numéro de téléphone');return;}
+  var normPh=ph.replace(/\D/g,'');
+  /* Normalize: 0612... or +33612... or 33612... should all match */
+  if(normPh.startsWith('33')&&normPh.length>9)normPh=normPh.substring(2);
+  if(normPh.startsWith('0'))normPh=normPh.substring(1);
+  /* Find appointments matching this phone - strict: normalized phones must be equal */
+  var myApts=APTS.filter(function(a){
+    if(a.cancelled)return false;
+    if(!a.patientPhone)return false;
+    var aPh=(a.patientPhone||'').replace(/\D/g,'');
+    if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
+    if(aPh.startsWith('0'))aPh=aPh.substring(1);
+    return aPh===normPh && aPh.length>=8;
+  });
+  /* Also check by reading from firebase full data - look for patientId match */
+  var todayK=dk(new Date());
+  var futureApts=myApts.filter(function(a){return a.date>=todayK}).sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:t2m(a.time)-t2m(b.time))});
+
+  var box=document.getElementById('myBookingsList');
+  if(!futureApts.length){
+    box.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Aucun rendez-vous trouvé pour ce numéro.<br><br><div style="font-size:12px">Si vous avez réservé récemment, le rendez-vous peut mettre quelques secondes à apparaître.</div></div>';
+  } else {
+    box.innerHTML=futureApts.map(function(a){
+      var dt=new Date(a.date+'T00:00:00');
+      var motif=CFG.motifs.find(function(m){return m.id===a.motifId});
+      var isToday=a.date===todayK;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px">'+
+        '<div style="flex:1"><div style="font-weight:600;font-size:13px">'+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+(isToday?' (aujourd\'hui)':'')+' à <b>'+a.time+'</b></div>'+
+        '<div style="font-size:12px;color:var(--text2)">'+(motif?motif.label:'Séance')+'</div></div>'+
+        '<button class="btn bd" style="font-size:11px;padding:6px 10px" onclick="cancelFromList(\''+a.id+'\')">🚫 Annuler</button></div>';
+    }).join('');
+  }
+  showStep('sMB');
+}
+
+function cancelFromList(apId){
+  lastBookingId=apId;
+  var ap=APTS.find(function(a){return a.id===apId});
+  if(!ap){toast('RDV introuvable');return;}
+  /* Check cancel deadline */
+  var rules=CFG.bookingRules||{};
+  var minHCancel=rules.minHoursCancel||24;
+  if(ap.date&&ap.time){
+    var hh2=parseInt(ap.time.split(':')[0]),mm2=parseInt(ap.time.split(':')[1]||'0');
+    var aptMs=new Date(ap.date+'T00:00:00').getTime()+(hh2*60+mm2)*60000;
+    var hoursLeft=(aptMs-Date.now())/3600000;
+    if(hoursLeft<minHCancel){
+      var proName=CFG.proName||'votre kinésithérapeute';
+      var proPhone=CFG.proPhone||'';
+      var msg='Vous ne pouvez plus annuler votre rendez-vous moins de '+minHCancel+' heure'+(minHCancel>1?'s':'')+' avant le début de la séance.';
+      var html='<div style="text-align:center;padding:20px"><div style="font-size:36px;margin-bottom:10px">⏰</div>'+
+        '<div style="font-weight:700;margin-bottom:8px">Annulation impossible</div>'+
+        '<div style="font-size:13px;color:var(--text2);margin-bottom:16px">'+msg+'</div>';
+      if(proPhone){
+        html+='<a href="sms:'+proPhone+'" class="btn bp bw" style="display:inline-block;padding:12px 20px;font-size:14px;text-decoration:none">💬 Contacter '+esc(proName)+'</a>';
+      }
+      html+='<br><button class="btn bs" onclick="showStep(\'sMB\')" style="margin-top:10px">← Retour</button></div>';
+      document.getElementById('myBookingsList').innerHTML=html;
+      return;
+    }
+  }
+  SEL.date=ap.date;SEL.time=ap.time;
+  SEL.motif=CFG.motifs.find(function(m){return m.id===ap.motifId})||{label:'Séance'};
+  showCancel();
+}
+
+/* ═══ STEP 1: MOTIFS ═══ */
+function renderMotifs(){
+  var box=document.getElementById('motifChips');
+  var visibleMotifs=CFG.motifs.filter(function(m){return !m.hiddenForPatient});
+  box.innerHTML=visibleMotifs.map(function(m,i){
+    var ci=m.ci!==undefined?m.ci:i;
+    var sel=SEL.motif&&SEL.motif.id===m.id;
+    return '<div class="chip'+(sel?' sel':'')+'" data-mid="'+m.id+'" style="background:'+CL_BG[ci%6]+';border-color:'+(sel?'var(--text)':'transparent')+'">'+
+      m.label+' <span style="font-size:11px;opacity:.6">('+m.duration+'min)</span></div>';
+  }).join('');
+  box.querySelectorAll('.chip').forEach(function(c){
+    c.onclick=function(){
+      var mid=c.dataset.mid;
+      SEL.motif=CFG.motifs.find(function(m){return m.id===mid})||null;
+      SEL.date=null;SEL.time=null;
+      renderMotifs();
+      renderMotifDesc();
+    };
+  });
+  renderMotifDesc();
+}
+function renderMotifDesc(){
+  var zone = document.getElementById('motifDescZone');
+  if(!zone) return;
+
+  if(SEL.motif && SEL.motif.description){
+    zone.style.display = 'block';
+    zone.innerHTML = '<b>ℹ️ ' + esc(SEL.motif.label) + '</b><br>' + esc(SEL.motif.description);
+  } else {
+    zone.style.display = 'none';
+    zone.innerHTML = '';
+  }
+}
+
+/* ═══ STEP 2: CALENDAR ═══ */
+function calNav(dir){
+  calView.setMonth(calView.getMonth()+dir);
+  renderCal();
+}
+function renderCal(){
+  var y=calView.getFullYear(),m=calView.getMonth();
+  document.getElementById('calMonth').textContent=MN[m]+' '+y;
+  var dim=new Date(y,m+1,0).getDate();
+  var today=new Date();today.setHours(0,0,0,0);
+  var todayK=dk(today);
+
+  var rules=CFG.bookingRules||{};
+  var minH=rules.minHoursBefore||2;
+  var maxD=rules.maxDaysAhead||60;
+  var now=new Date();
+  var minDate=new Date(now.getTime()+minH*3600000);
+  var maxDate=new Date(now);maxDate.setDate(maxDate.getDate()+maxD);
+
+  var vacPeriods=CFG.vacationPeriods||[];
+  if(CFG.vacationMode&&CFG.vacationMode.enabled&&!vacPeriods.length){
+    vacPeriods=[{from:CFG.vacationMode.from,to:CFG.vacationMode.to,msg:CFG.vacationMode.msg}];
+  }
+
+  /* Find first reservable day in this month (not past, not vacation, is opening day, within booking window) */
+  var firstAvail=0;
+  for(var fd=1;fd<=dim;fd++){
+    var fdt=new Date(y,m,fd);
+    var fk=dk(fdt);
+    var fOnVac=false;vacPeriods.forEach(function(v){if(v.from&&v.to&&fk>=v.from&&fk<=v.to)fOnVac=true});
+    if(CFG.days.includes(fdt.getDay())&&fdt>=minDate&&fdt<=maxDate&&!fOnVac){firstAvail=fd;break}
+  }
+  /* Use remembered firstAvailDay if we're on the auto-navigated month */
+  if(window._firstAvailDay&&window._firstAvailMonth===m&&window._firstAvailYear===y){
+    firstAvail=window._firstAvailDay;
+  }
+  
+  /* displayStart = Monday of the week containing firstAvail (or day 1 if none) */
+  var displayStart=1;
+  if(firstAvail>0){
+    var fowDate=new Date(y,m,firstAvail);
+    var fowDow=(fowDate.getDay()+6)%7;
+    displayStart=firstAvail-fowDow;
+    if(displayStart<1)displayStart=1;
+  }
+
+  var h='';
+  
+  /* Check if we're hiding early dates — show vacation message if applicable */
+  if(displayStart>1){
+    var hiddenVacMsg='';
+    vacPeriods.forEach(function(v){
+      if(!v.from||!v.to)return;
+      var vFrom=new Date(v.from+'T00:00:00'),vTo=new Date(v.to+'T00:00:00');
+      var mStart=new Date(y,m,1),hiddenEnd=new Date(y,m,displayStart-1);
+      if(vFrom<=hiddenEnd&&vTo>=mStart){
+        var fromStr=vFrom.getDate()+' '+MN[vFrom.getMonth()];
+        var toStr=vTo.getDate()+' '+MN[vTo.getMonth()];
+        hiddenVacMsg+='<div style="grid-column:1/-1;text-align:center;padding:8px 4px;font-size:12px;color:#e67e22;background:#fff8f0;border-radius:8px;margin-bottom:6px">🏖️ '+(v.msg||'Cabinet fermé')+' — du '+fromStr+' au '+toStr+'</div>';
+      }
+    });
+    /* If no vacation explains the hidden dates, just mention they are past/unavailable */
+    if(!hiddenVacMsg&&displayStart>7){
+      h+='<div style="grid-column:1/-1;text-align:center;padding:6px;font-size:11px;color:var(--text3);margin-bottom:4px">Dates du 1 au '+(displayStart-1)+' non disponibles</div>';
+    } else {
+      h+=hiddenVacMsg;
+    }
+  }
+  
+  ['L','M','M','J','V','S','D'].forEach(function(d){h+='<div class="cal-hdr">'+d+'</div>'});
+  
+  var startDow=(new Date(y,m,displayStart).getDay()+6)%7;
+  for(var i=0;i<startDow;i++)h+='<div></div>';
+  
+  for(var d=displayStart;d<=dim;d++){
+    var dt=new Date(y,m,d);
+    var k=dk(dt);
+    var dow=dt.getDay();
+    var ok=CFG.days.includes(dow);
+    var tooSoon=dt<new Date(minDate.getFullYear(),minDate.getMonth(),minDate.getDate());
+    var tooLate=dt>maxDate;
+    var past=dt<today;
+    var onVacation=false;
+    vacPeriods.forEach(function(v){if(v.from&&v.to&&k>=v.from&&k<=v.to)onVacation=true});
+    var dis=!ok||tooSoon||tooLate||past||onVacation;
+    var sel=SEL.date===k;
+    var isToday=k===todayK;
+    h+='<div class="cal-day'+(dis?' dis':'')+(sel?' sel':'')+(isToday?' today':'')+'" data-k="'+k+'">'+d+'</div>';
+  }
+  
+  /* Vacation messages: show on EVERY month that overlaps with a vacation period */
+  var vacMsg='';
+  vacPeriods.forEach(function(v){
+    if(!v.from||!v.to)return;
+    var vFromD=new Date(v.from+'T00:00:00'),vToD=new Date(v.to+'T00:00:00');
+    var mStart=new Date(y,m,1),mEnd=new Date(y,m,dim);
+    /* Show if this month has ANY overlap with the vacation period */
+    if(vFromD<=mEnd&&vToD>=mStart){
+      var fromStr=vFromD.getDate()+' '+MN[vFromD.getMonth()];
+      var toStr=vToD.getDate()+' '+MN[vToD.getMonth()];
+      vacMsg+='<div style="grid-column:1/-1;text-align:center;padding:6px;font-size:11px;color:#e67e22;margin-top:4px">🏖️ '+(v.msg||'Cabinet fermé')+' — du '+fromStr+' au '+toStr+'</div>';
+    }
+  });
+  
+  document.getElementById('calGrid').innerHTML=h+vacMsg;
+  document.querySelectorAll('.cal-day:not(.dis)').forEach(function(el){
+    el.onclick=function(){
+      SEL.date=el.dataset.k;SEL.time=null;
+      renderCal();
+    };
+  });
+}
+
+/* ═══ STEP 3: TIME SLOTS ═══ */
+function renderSlots(){
+  if(!SEL.motif||!SEL.date)return;
+  var motif=SEL.motif;
+  var maxSlots=motif.slots||1;
+  var slotEx=motif.slotExceptions||{};
+  var times=(motif.times||[]).filter(Boolean).slice().sort(function(a,b){return t2m(a)-t2m(b)});
+
+  /* If no typical times defined, generate from openings */
+  if(!times.length){
+    var dt=new Date(SEL.date+'T00:00:00');
+    var dow=dt.getDay();
+    var ops=(CFG.openings||[]).filter(function(o){return o.day===dow});
+    ops.forEach(function(o){
+      var s=t2m(o.start),e=t2m(o.end);
+      for(var m=s;m+motif.duration<=e;m+=motif.duration){
+        times.push(m2t(m));
+      }
+    });
+  }
+
+  /* Check booking rules: filter out times too soon */
+  var rules=CFG.bookingRules||{};
+  var minH=rules.minHoursBefore||2;
+  var now=new Date();
+  var minTime=new Date(now.getTime()+minH*3600000);
+  var selDate=new Date(SEL.date+'T00:00:00');
+
+  /* Get existing appointments for this date and this motif */
+  var dayApts=APTS.filter(function(a){return a.date===SEL.date&&!a.cancelled});
+
+  var dateObj=new Date(SEL.date+'T00:00:00');
+  document.getElementById('dateLabel').textContent=DL[dateObj.getDay()]+' '+dateObj.getDate()+' '+MN[dateObj.getMonth()]+' '+dateObj.getFullYear();
+
+  var box=document.getElementById('timeSlots');
+  var noSlots=document.getElementById('noSlots');
+
+  if(!times.length){
+    box.innerHTML='';noSlots.style.display='block';return;
+  }
+  noSlots.style.display='none';
+
+  box.innerHTML=times.map(function(t){
+    /* Count how many bookings exist at this exact time for this motif */
+    var tm=t2m(t);
+    var thisMaxSlots=slotEx[t]||maxSlots;
+    var bookingsAtSlot=dayApts.filter(function(a){
+      return a.motifId===motif.id && a.time===t;
+    }).length;
+    /* Check general overlap for other motifs (unless simultaneous allowed) */
+    var generalOverlap=false;
+    if(!motif.allowSimul){
+      generalOverlap=dayApts.some(function(a){
+        if(a.motifId===motif.id)return false;
+        var as=t2m(a.time),ae=as+(a.duration||30);
+        var be=tm+(motif.duration||30);
+        return tm<ae && be>as;
+      });
+    } else {
+      /* Only check overlap with motifs that are NOT the simulWith partner */
+      generalOverlap=dayApts.some(function(a){
+        if(a.motifId===motif.id)return false;
+        if(a.motifId===motif.simulWith)return false; /* allowed simultaneous */
+        var as=t2m(a.time),ae=as+(a.duration||30);
+        var be=tm+(motif.duration||30);
+        return tm<ae && be>as;
+      });
+    }
+    var taken=bookingsAtSlot>=thisMaxSlots || generalOverlap;
+    /* Check if too soon */
+    var slotDate=new Date(selDate);
+    slotDate.setHours(Math.floor(tm/60),tm%60,0,0);
+    var tooSoon=slotDate<minTime;
+    var dis=taken||tooSoon;
+    var sel=SEL.time===t;
+    var remaining=thisMaxSlots-bookingsAtSlot;
+    var badge=(thisMaxSlots>1 && !dis && remaining>0)?(' <span style="font-size:10px;opacity:.6">('+remaining+' place'+(remaining>1?'s':'')+')</span>'):'';
+    return '<div class="slot'+(dis?' taken':'')+(sel?' sel':'')+'" data-t="'+t+'">'+t+badge+'</div>';
+  }).join('');
+
+  box.querySelectorAll('.slot:not(.taken)').forEach(function(el){
+    el.onclick=function(){
+      SEL.time=el.dataset.t;
+      renderSlots();
+    };
+  });
+}
+
+/* ═══ STEP 4: SUMMARY ═══ */
+function renderSummary(){
+  if(!SEL.motif||!SEL.date||!SEL.time)return;
+  var dt=new Date(SEL.date+'T00:00:00');
+  var h='<div class="row"><span>Séance</span><b>'+SEL.motif.label+'</b></div>';
+  h+='<div class="row"><span>Durée</span><b>'+SEL.motif.duration+' min</b></div>';
+  h+='<div class="row"><span>Date</span><b>'+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+'</b></div>';
+  h+='<div class="row"><span>Heure</span><b>'+SEL.time+'</b></div>';
+  document.getElementById('summary').innerHTML=h;
+}
+
+/* ═══ BOOK ═══ */
+function doBook(){
+  var ln=(document.getElementById('pLast').value||'').trim();
+  var fn=(document.getElementById('pFirst').value||'').trim();
+  var ph=(document.getElementById('pPhone').value||'').trim();
+  var note=(document.getElementById('pNote').value||'').trim();
+
+  if(!ln||!fn){toast('Nom et prénom requis');return;}
+  if(!ph||ph.length<8){toast('Téléphone requis');return;}
+
+  if(!SEL.motif||!SEL.date||!SEL.time){toast('Sélection incomplète');return;}
+
+  /* Same-day warning: check if patient already has a booking this day */
+  var normBookPh=ph.replace(/\D/g,'');
+  if(normBookPh.startsWith('33')&&normBookPh.length>9)normBookPh=normBookPh.substring(2);
+  if(normBookPh.startsWith('0'))normBookPh=normBookPh.substring(1);
+  var sameDayApts=APTS.filter(function(a){
+    if(a.date!==SEL.date||a.cancelled)return false;
+    if(!a.patientPhone)return false; /* Skip pro-created appointments without phone */
+    var aPh=(a.patientPhone||'').replace(/\D/g,'');
+    if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
+    if(aPh.startsWith('0'))aPh=aPh.substring(1);
+    return aPh.length>=8 && normBookPh.length>=8 && aPh===normBookPh;
+  });
+  if(sameDayApts.length>0 && !window._sameDayConfirmed){
+    var dt2=new Date(SEL.date+'T00:00:00');
+    var dateFr2=dt2.getDate()+' '+MN[dt2.getMonth()]+' '+dt2.getFullYear();
+    if(!confirm('Vous avez déjà un rendez-vous le '+dateFr2+'.\nSouhaitez-vous quand même réserver ce créneau supplémentaire ?'))return;
+    window._sameDayConfirmed=true;
+  }
+
+  /* Double-check slot is still free (respects multi-slots and simultanéité) */
+  var tm=t2m(SEL.time);
+  var dur=SEL.motif.duration||30;
+  var maxSlots=SEL.motif.slots||1;
+  var dayApts=APTS.filter(function(a){return a.date===SEL.date&&!a.cancelled});
+  /* Count same-motif bookings at exact same time */
+  var sameSlotCount=dayApts.filter(function(a){
+    return a.motifId===SEL.motif.id && a.time===SEL.time;
+  }).length;
+  /* Check general overlap (other motifs, unless simul allowed) */
+  var generalOverlap=false;
+  if(!SEL.motif.allowSimul){
+    generalOverlap=dayApts.some(function(a){
+      if(a.motifId===SEL.motif.id)return false;
+      var as=t2m(a.time),ae=as+(a.duration||30);
+      return tm<ae && (tm+dur)>as;
+    });
+  } else {
+    generalOverlap=dayApts.some(function(a){
+      if(a.motifId===SEL.motif.id)return false;
+      if(a.motifId===SEL.motif.simulWith)return false;
+      var as=t2m(a.time),ae=as+(a.duration||30);
+      return tm<ae && (tm+dur)>as;
+    });
+  }
+  var conflict=sameSlotCount>=maxSlots || generalOverlap;
+  if(conflict){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
+
+  var btn=document.getElementById('btnBook');
+  btn.disabled=true;btn.textContent='⏳ Envoi...';
+
+  /* Save patient info for next time */
+  try{
+    localStorage.setItem('pf_patient',JSON.stringify({lastName:ln,firstName:fn,phone:ph}));
+  }catch(e){}
+
+  /* Use persistent patientId (stable across bookings for same device) */
+  var pid;
+  try{pid=localStorage.getItem('pf_patientId')}catch(e){}
+  if(!pid){
+    pid='pat_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    try{localStorage.setItem('pf_patientId',pid)}catch(e){}
+  }
+  var booking={
+    id:'b_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    motifId:SEL.motif.id,
+    date:SEL.date,
+    time:SEL.time,
+    duration:dur,
+    patientId:pid,
+    patientLastName:ln,
+    patientFirstName:fn,
+    patientPhone:ph,
+    patientNote:note,
+    bookedAt:new Date().toISOString(),
+    source:'patient'
+  };
+
+  REF.child('patientBookings').push(booking);
+  /* Write to notifyPro queue for Cloud Function push notification */
+  REF.child('notifyPro').push({
+    type:'booking',
+    patientName:ln+' '+fn,
+    date:booking.date,
+    time:booking.time,
+    motifId:booking.motifId,
+    createdAt:new Date().toISOString()
+  });
+  /* Also write directly to appointments for immediate sync with other patients */
+  var aptEntry={
+    id:booking.id,
+    date:booking.date,
+    time:booking.time,
+    duration:booking.duration,
+    motifId:booking.motifId,
+    patientId:booking.patientId,
+    patientName:ln+' '+fn,
+    patientPhone:ph,
+    cancelled:false,
+    type:'rdv',
+    source:'patient',
+    bookedAt:new Date().toISOString()
+  };
+  /* Append to appointments atomically (transaction prevents lost writes from concurrent bookings) */
+  REF.child('appointments').transaction(function(current){
+    var arr=current;
+    if(!Array.isArray(arr))arr=arr?Object.values(arr):[];
+    arr.push(aptEntry);
+    return arr;
+  }).then(function(){
+    btn.disabled=false;btn.textContent='✅ Confirmer la réservation';
+    lastBookingId=booking.id;
+    /* Show confirmation */
+    var dt=new Date(SEL.date+'T00:00:00');
+    var proName=CFG.proName||'votre kinésithérapeute';
+    var isToday=SEL.date===dk(new Date());
+    var dateLabel=DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+(isToday?' (aujourd\'hui)':'');
+    document.getElementById('confirmDetails').innerHTML=
+      '<div style="margin:8px 0"><b>'+SEL.motif.label+'</b></div>'+
+      '<div>'+dateLabel+' à <b>'+SEL.time+'</b></div>'+
+      '<div style="margin-top:4px">'+ln+' '+fn+'</div>'+
+      '<div style="margin-top:12px;font-size:12px;color:var(--text3)">Rendez-vous pris avec '+proName+'.</div>';
+    showStep('s5');
+    /* Register patient for push notifications */
+    requestPatientNotif(booking.patientId);
+    /* SMS self-reminder */
+    if(document.getElementById('smsReminder')&&document.getElementById('smsReminder').checked && ph){
+      var msg='📅 Rappel RDV Kiné :\n'+SEL.motif.label+'\n'+dateLabel+' à '+SEL.time+'\nAvec '+proName+'\n\n(Pensez à prévenir en cas d\'empêchement)';
+      var uri='sms:'+encodeURIComponent(ph)+'?body='+encodeURIComponent(msg);
+      setTimeout(function(){window.location.href=uri},600);
+    }
+  }).catch(function(e){
+    console.error(e);
+    btn.disabled=false;btn.textContent='✅ Confirmer la réservation';
+    toast('Erreur lors de la réservation. Réessayez.');
+  });
+}
+
+function resetAll(){
+  SEL={motif:null,date:null,time:null};
+  window._sameDayConfirmed=false;
+  document.getElementById('pLast').value='';
+  document.getElementById('pFirst').value='';
+  document.getElementById('pPhone').value='';
+  document.getElementById('pNote').value='';
+  calView=new Date();
+  lastBookingId=null;
+  showStep('sW');
+}
+
+/* ═══ CANCEL ═══ */
+var lastBookingId=null;
+
+function showCancel(){
+  if(!lastBookingId||!SEL.motif||!SEL.date||!SEL.time){toast('Aucune réservation à annuler');return;}
+  var dt=new Date(SEL.date+'T00:00:00');
+  document.getElementById('cancelInfo').innerHTML=
+    '<b>'+SEL.motif.label+'</b> — '+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+' à <b>'+SEL.time+'</b>';
+  showStep('s6');
+  /* Toggle "Autre" field */
+  document.getElementById('cancelReason').onchange=function(){
+    document.getElementById('cancelOtherWrap').style.display=
+      this.value==='Autre'?'block':'none';
+  };
+}
+
+function doCancel(){
+  if(!lastBookingId){toast('Aucune réservation à annuler');return;}
+  var reason=document.getElementById('cancelReason').value;
+  if(reason==='Autre'){
+    var v=(document.getElementById('cancelOtherInput').value||'').trim();
+    if(v)reason=v;
+  }
+  /* Push cancellation notification for Pro */
+  REF.child('patientCancellations').push({
+    appointmentId:lastBookingId,
+    reason:reason,
+    cancelledAt:new Date().toISOString()
+  });
+  /* Write to notifyPro queue for Cloud Function push notification */
+  REF.child('notifyPro').push({
+    type:'cancel',
+    appointmentId:lastBookingId,
+    reason:reason,
+    createdAt:new Date().toISOString()
+  });
+  /* Mark cancelled atomically in appointments */
+  var cancelId=lastBookingId;
+  REF.child('appointments').transaction(function(current){
+    var arr=current;
+    if(!Array.isArray(arr))arr=arr?Object.values(arr):[];
+    for(var i=0;i<arr.length;i++){
+      if(arr[i] && arr[i].id===cancelId){
+        arr[i].cancelled=true;
+        arr[i].cancelledBy='patient';
+        arr[i].cancelReason=reason;
+        break;
+      }
+    }
+    return arr;
+  }).then(function(){
+    toast('Réservation annulée');
+    lastBookingId=null;
+    showStep('sW');
+  }).catch(function(e){
+    console.error(e);
+    toast('Erreur, réessayez');
+  });
+}
+
+/* ═══ PWA INSTALL PROMPT ═══ */
+var _deferredInstallPrompt=null;
+var _installDismissed=false;
+
+/* Chrome/Android: capture beforeinstallprompt */
+window.addEventListener('beforeinstallprompt',function(e){
+  e.preventDefault();
+  _deferredInstallPrompt=e;
+  /* If gate is already showing, upgrade to auto-install button */
+  if(document.getElementById('installGate')){upgradeInstallGate()}
+  /* If gate not shown yet, show it now */
+  else if(!isStandalone()){
+    try{if(!localStorage.getItem('pf_install_skip'))showInstallGate()}catch(ex){showInstallGate()}
+  }
+});
+
+/* Detect if already installed as PWA */
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+}
+
+function showInstallBanner(platform){
+  if(isStandalone())return; /* Already installed */
+  try{if(localStorage.getItem('pf_install_dismissed'))return;}catch(e){}
+  var banner=document.getElementById('installBanner');
+  var textEl=document.getElementById('installText');
+  var btnEl=document.getElementById('installBtn');
+  if(!banner)return;
+
+  if(platform==='ios'){
+    textEl.innerHTML='<b>📲 Installer PhysioFlow</b><br><br>'+
+      '<div style="text-align:left;line-height:1.8">'+
+      '<b>Étape 1</b> — Appuyez sur le bouton <b>Partager</b> <span style="display:inline-block;border:1px solid #999;border-radius:4px;padding:0 4px;font-size:14px">⬆</span> en bas de l\'écran<br>'+
+      '<b>Étape 2</b> — Faites défiler les icônes et appuyez sur <b>« En voir plus »</b><br>'+
+      '<b>Étape 3</b> — Appuyez sur <b>⊕ Sur l\'écran d\'accueil</b><br>'+
+      '<b>Étape 4</b> — Confirmez en appuyant sur <b>« Ajouter »</b> en haut à droite</div>';
+    btnEl.style.display='none';
+  } else {
+    textEl.innerHTML='<b>Installer PhysioFlow</b><br>Ajoutez l\'application sur votre écran d\'accueil pour un accès rapide.';
+    btnEl.style.display='';
+  }
+  banner.classList.add('show');
+}
+
+function doInstall(){
+  if(_deferredInstallPrompt){
+    _deferredInstallPrompt.prompt();
+    _deferredInstallPrompt.userChoice.then(function(r){
+      if(r.outcome==='accepted')toast('Application installée !');
+      _deferredInstallPrompt=null;
+      dismissInstall();
+    });
+  }
+}
+
+function dismissInstall(){
+  var banner=document.getElementById('installBanner');
+  if(banner)banner.classList.remove('show');
+  try{localStorage.setItem('pf_install_dismissed','1');}catch(e){}
+}
+
+/* iOS detection: show banner after short delay */
+setTimeout(function(){
+  if(isStandalone())return;
+  var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if(isIOS && !navigator.standalone){
+    showInstallBanner('ios');
+  }
+  /* Samsung/other Android browsers that don't fire beforeinstallprompt */
+  var isAndroid=/Android/i.test(navigator.userAgent);
+  if(isAndroid && !_deferredInstallPrompt){
+    var banner=document.getElementById('installBanner');
+    var textEl=document.getElementById('installText');
+    var btnEl=document.getElementById('installBtn');
+    if(banner && !banner.classList.contains('show')){
+      try{if(localStorage.getItem('pf_install_dismissed'))return;}catch(e){}
+      textEl.innerHTML='<b>Installer PhysioFlow</b><br>Ouvrez le menu de votre navigateur (⋮) puis <b>"Ajouter à l\'écran d\'accueil"</b>';
+      btnEl.style.display='none';
+      banner.classList.add('show');
+    }
+  }
+},2000);
+
+/* ═══ INIT ═══ */
+function showVacationScreen(msg){
+  document.getElementById('refuseTitle').textContent='🏖️ Cabinet fermé';
+  document.getElementById('refuseMsg').innerHTML=esc(msg)+'<br><br>Les réservations en ligne seront de nouveau disponibles à la réouverture.';
+  document.getElementById('refuseActions').innerHTML='<button class="btn bp bw" onclick="showStep(\'sW\')">🏠 Retour à l\'accueil</button>';
+  showStep('sRefuse');
+}
+function showRefuseScreen(type,proName,proPhone){
+  var title,msg,actions;
+  if(type==='newPatient'){
+    title='Agenda actuellement complet';
+    msg='Du fait de la saturation actuelle de son agenda, <b>'+esc(proName)+'</b> n\'accepte pas de nouveaux patients pour le moment.<br><br>N\'hésitez pas à réessayer ultérieurement.';
+    actions='<button class="btn bp" onclick="showStep(\'sW\')" style="flex:1">🏠 Accueil</button>';
+    actions+='<button class="btn bs" onclick="joinWaitlist()" style="flex:1">⏳ Liste d\'attente</button>';
+    if(proPhone){
+      actions+='<a href="sms:'+encodeURIComponent(proPhone)+'" class="btn bs" style="text-decoration:none;flex:1">💬 SMS</a>';
+    }
+  } else {
+    title='Agenda actuellement saturé';
+    msg='L\'agenda de <b>'+esc(proName)+'</b> est actuellement saturé.<br><br>Nous vous conseillons de le contacter directement afin de fixer un rendez-vous.';
+    actions='<button class="btn bp" onclick="showStep(\'sW\')" style="flex:1">🏠 Accueil</button>';
+    actions+='<button class="btn bs" onclick="joinWaitlist()" style="flex:1">⏳ Liste d\'attente</button>';
+    if(proPhone){
+      actions+='<a href="sms:'+encodeURIComponent(proPhone)+'" class="btn bs" style="text-decoration:none;flex:1">💬 SMS au '+esc(proPhone)+'</a>';
+    }
+  }
+  document.getElementById('refuseTitle').textContent=title;
+  document.getElementById('refuseMsg').innerHTML=msg;
+  document.getElementById('refuseActions').innerHTML=actions;
+  showStep('sRefuse');
+}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+function showCloseDialog(){document.getElementById('closeOverlay').style.display='flex'}
+function joinWaitlist(){
+  var ph=(document.getElementById('myPhone').value||'').trim();
+  var name=prompt('Votre nom et prénom :','');
+  if(!name){toast('Inscription annulée');return;}
+  var motifLabel='';
+  if(SEL.motif)motifLabel=SEL.motif.label;
+  var entry={
+    patientName:name,
+    patientPhone:ph,
+    motifLabel:motifLabel,
+    addedDate:dk(new Date()),
+    timestamp:new Date().toISOString()
+  };
+  REF.child('waitlist').push(entry).then(function(){
+    toast('Inscrit sur la liste d\'attente ✓');
+    showStep('sW');
+  }).catch(function(){toast('Erreur, réessayez')});
+}
+
+/* ═══ GLOWS + INSTALL GATE + HELP TOOLTIPS ═══ */
+
+/* ── GLOW ENGINE (always active, not tied to tutorial) ── */
+function clearGlows(){
+  document.querySelectorAll('.guide-glow,.tuto-glow,.tuto-target').forEach(function(e){
+    e.classList.remove('guide-glow','tuto-glow','tuto-target');
+  });
+}
+function addGlow(el){if(el)el.classList.add('guide-glow')}
+function applyGlowsForScreen(screenId){
+  clearGlows();
+  if(screenId==='sW'){
+    var ph=document.getElementById('myPhone');
+    if(ph&&ph.value.replace(/\s/g,'').length>=8){
+      var btn=document.querySelector('[onclick="tryStartBooking()"]');if(btn)addGlow(btn);
+    } else if(ph){
+      addGlow(ph);
+    }
+  }
+  else if(screenId==='s1'){
+    /* Rotate glow across motif chips */
+    var chips=document.querySelectorAll('#motifChips .chip');
+    if(chips.length&&!SEL.motif){
+      var gi=0;
+      window._motifGlowTimer=setInterval(function(){
+        if(document.querySelector('.step.on')&&document.querySelector('.step.on').id!=='s1'){clearInterval(window._motifGlowTimer);return}
+        chips.forEach(function(c){c.classList.remove('guide-glow')});
+        if(chips[gi])chips[gi].classList.add('guide-glow');
+        gi=(gi+1)%chips.length;
+      },500);
+    }
+    /* If motif already selected, glow Suivant button */
+    if(SEL.motif){var sb=document.getElementById('btnS1');if(sb)addGlow(sb)}
+  }
+  else if(screenId==='s2'){
+    /* Glow available calendar dates */
+    setTimeout(function(){
+      document.querySelectorAll('.cal-day:not(.dis)').forEach(function(d){d.classList.add('guide-glow')});
+    },100);
+  }
+  else if(screenId==='s3'){
+    document.querySelectorAll('.slot:not(.full)').forEach(function(s){addGlow(s)});
+  }
+  else if(screenId==='s4'){
+    checkS4Glows();
+  }
+}
+function checkS4Glows(){
+  clearGlows();
+  var missing=[];
+  var ln=document.getElementById('pLast');if(ln&&!ln.value.trim())missing.push(ln);
+  var fn=document.getElementById('pFirst');if(fn&&!fn.value.trim())missing.push(fn);
+  var ph=document.getElementById('pPhone');if(ph&&!ph.value.trim())missing.push(ph);
+  if(missing.length){missing.forEach(function(f){addGlow(f)})}
+  else{var cb=document.getElementById('btnBook');if(cb)addGlow(cb)}
+}
+
+/* ── INSTALL GATE ── */
+function showInstallGate(){
+  if(isStandalone()){onInstallDone();return}
+  try{if(localStorage.getItem('pf_install_skip')){onInstallDone();return}}catch(e){}
+  if(document.getElementById('installGate'))return;
+  var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+  var isAndroid=/Android/i.test(navigator.userAgent);
+  var isSafari=isIOS&&/Safari/.test(navigator.userAgent)&&!/CriOS|FxiOS|OPiOS|EdgiOS/.test(navigator.userAgent);
+  var isChrome=isIOS&&/CriOS/.test(navigator.userAgent);
+  var isEdge=isIOS&&/EdgiOS/.test(navigator.userAgent);
+
+  var gate=document.createElement('div');gate.className='install-gate';gate.id='installGate';
+  var h='<div style="font-size:56px">📲</div><h2>Installez PhysioFlow</h2>'+
+    '<div style="font-size:13px;color:var(--text2);max-width:300px;margin:0 auto 4px">Pour une meilleure expérience et recevoir vos rappels de séance</div>';
+
+  if(_deferredInstallPrompt){
+    h+='<button class="btn bp bw" style="margin-top:20px;padding:16px 40px;font-size:17px" onclick="doAndroidInstall()">Installer</button>';
+  } else if(isIOS && isSafari){
+    h+='<div class="ig-steps">① Appuyez sur <b style="font-size:20px">⬆️</b> en bas de l\'écran<br>② Appuyez <b>Sur l\'écran d\'accueil</b><br>③ Appuyez <b>Ajouter</b></div>';
+  } else if(isIOS && (isChrome||isEdge)){
+    var browser=isChrome?'Chrome':'Edge';
+    h+='<div class="ig-steps" style="color:#e74c3c;font-weight:600">'+browser+' ne permet pas l\'installation sur iPhone.</div>'+
+      '<div class="ig-steps">Ouvrez cette page dans <b>Safari</b> :<br>① Copiez le lien<br>② Ouvrez Safari<br>③ Collez le lien</div>'+
+      '<button class="btn bp" style="margin:8px 0" onclick="navigator.clipboard.writeText(location.href);this.textContent=\'✓ Copié !\'">📋 Copier le lien</button>';
+  } else if(isIOS){
+    h+='<div class="ig-steps">Ouvrez cette page dans <b>Safari</b> pour installer.</div>'+
+      '<button class="btn bp" style="margin:8px 0" onclick="navigator.clipboard.writeText(location.href);this.textContent=\'✓ Copié !\'">📋 Copier le lien</button>';
+  } else if(isAndroid){
+    h+='<div id="igManual"><div class="ig-steps">① Appuyez sur <b>⋮</b> (menu en haut à droite)<br>② Appuyez <b>Installer l\'application</b><br>ou <b>Ajouter à l\'écran d\'accueil</b></div></div>'+
+      '<div id="igAuto" style="display:none"><button class="btn bp bw" style="padding:16px 40px;font-size:17px" onclick="doAndroidInstall()">Installer</button></div>';
+  } else { onInstallDone();return; }
+
+  h+='<div style="font-size:11px;color:var(--text3);margin-top:28px;cursor:pointer;text-decoration:underline" onclick="skipInstallGate()">Continuer sans installer</div>';
+  gate.innerHTML=h;document.body.appendChild(gate);
+}
+function upgradeInstallGate(){var m=document.getElementById('igManual');var a=document.getElementById('igAuto');if(m)m.style.display='none';if(a)a.style.display='block'}
+function doAndroidInstall(){
+  if(!_deferredInstallPrompt)return;
+  _deferredInstallPrompt.prompt();
+  _deferredInstallPrompt.userChoice.then(function(){_deferredInstallPrompt=null;removeInstallGate();onInstallDone()});
+}
+function skipInstallGate(){try{localStorage.setItem('pf_install_skip','1')}catch(e){}removeInstallGate();onInstallDone()}
+function removeInstallGate(){var g=document.getElementById('installGate');if(g)g.remove()}
+function onInstallDone(){/* Glows start automatically via showStep hook */}
+window.addEventListener('appinstalled',function(){removeInstallGate();onInstallDone()});
+if(isStandalone()){try{localStorage.setItem('pf_install_skip','1')}catch(e){}}
+
+/* ── HELP BUTTON (?) = v27-style info-bulles on demand ── */
+var TUTO={active:false,step:0};
+function showTip(html,pos){
+  hideTip();var tip=document.getElementById('tutoTip');
+  tip.innerHTML=html+'<div class="tuto-step"><button class="tuto-skip" onclick="endTip()">Passer le guide</button><button class="tuto-next" onclick="hideTip()">OK ✓</button></div>';
+  tip.style.display='block';tip.style.top=pos==='bottom'?'auto':'12px';tip.style.bottom=pos==='bottom'?'12px':'auto';
+}
+function hideTip(){document.getElementById('tutoTip').style.display='none'}
+function endTip(){hideTip();TUTO.active=false}
+function restartTutorial(){
+  /* ? button pressed: show contextual tip for current screen */
+  TUTO.active=true;
+  var cur=document.querySelector('.step.on');
+  if(cur)showHelpForScreen(cur.id);
+}
+function showHelpForScreen(screenId){
+  if(screenId==='sW'){
+    showTip('① <b>Entrez votre numéro de téléphone</b> dans le champ en bas de l\'écran. Il servira à retrouver vos rendez-vous.<br><br>② Appuyez sur <b>« 📅 Prendre un rendez-vous »</b>.','top');
+  }
+  else if(screenId==='s1'){
+    showTip('③ <b>Appuyez sur votre type de séance</b>, puis sur <b>« Suivant »</b>.','top');
+  }
+  else if(screenId==='s2'){
+    showTip('④ <b>Choisissez une date</b> (les jours en gras sont disponibles). Changez de mois avec les flèches <b>‹ ›</b>. Puis <b>« Suivant »</b>.','top');
+  }
+  else if(screenId==='s3'){
+    showTip('⑤ <b>Appuyez sur un horaire</b> disponible, puis <b>« Suivant »</b>.','top');
+  }
+  else if(screenId==='s4'){
+    showTip('⑥ Vérifiez vos infos, puis <b>« ✅ Confirmer »</b>.<br><span style="font-size:11px;opacity:.7">💡 Vous pouvez aussi cocher « SMS de rappel » pour recevoir un SMS en plus des notifications.</span>','top');
+  }
+  else if(screenId==='s5'){
+    showTip('✅ Votre rendez-vous est confirmé ! Vous pouvez l\'ajouter à votre agenda ou le modifier.','top');
+  }
+}
+/* Legacy compat */
+function endTutorial(){endTip()}
+function tryInstallFirst(cb){cb()}
+function blurInputs(){document.activeElement&&document.activeElement.blur&&document.activeElement.blur()}
+
+/* ═══ ADD TO CALENDAR ═══ */
+function addToCalendar(){
+  if(!SEL.date||!SEL.time||!SEL.motif)return;
+  var proName=CFG.proName||'Kinésithérapeute';
+  var motLabel=SEL.motif.label||'Séance';
+  var dur=SEL.motif.duration||30;
+  var dp=SEL.date.split('-'),tp=SEL.time.split(':');
+  var start=new Date(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]),parseInt(tp[0]),parseInt(tp[1]));
+  var end=new Date(start.getTime()+dur*60000);
+  function p2(n){return n<10?'0'+n:''+n}
+  function icsD(d){return d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00'}
+  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PhysioFlow//FR\r\nBEGIN:VEVENT\r\n'+
+    'DTSTART:'+icsD(start)+'\r\nDTEND:'+icsD(end)+'\r\n'+
+    'SUMMARY:'+motLabel+' — '+proName+'\r\n'+
+    'DESCRIPTION:Rendez-vous PhysioFlow - '+motLabel+' avec '+proName+'\r\n'+
+    'BEGIN:VALARM\r\nTRIGGER:-PT1H\r\nACTION:DISPLAY\r\nDESCRIPTION:RDV dans 1h\r\nEND:VALARM\r\n'+
+    'END:VEVENT\r\nEND:VCALENDAR';
+  /* Download .ics file — system will show "Open" option */
+  var blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='rdv-physioflow-'+SEL.date+'.ics';
+  a.style.display='none';document.body.appendChild(a);a.click();
+  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url)},2000);
+}
+
+/* ── Hook showStep: install gate + glows ── */
+var _origShowStep=showStep;
+showStep=function(id){
+  _origShowStep(id);
+  if(window._motifGlowTimer){clearInterval(window._motifGlowTimer);window._motifGlowTimer=null}
+  if(id==='sW'){
+    showInstallGate();
+  }
+  /* Always apply context-aware glows */
+  setTimeout(function(){applyGlowsForScreen(id)},200);
+};
+
+/* ── Live glow watchers ── */
+/* Phone input on welcome: switch glow from phone to button when filled */
+document.addEventListener('DOMContentLoaded',function(){
+  var ph=document.getElementById('myPhone');
+  if(ph)ph.addEventListener('input',function(){
+    var cur=document.querySelector('.step.on');
+    if(cur&&cur.id==='sW')applyGlowsForScreen('sW');
+  });
+  /* s4 fields: instant glow feedback */
+  ['pLast','pFirst','pPhone'].forEach(function(fid){
+    var f=document.getElementById(fid);
+    if(f)f.addEventListener('input',function(){
+      var cur=document.querySelector('.step.on');
+      if(cur&&cur.id==='s4')checkS4Glows();
+    });
+  });
+});
+
+loadData();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(function(){});
+
+/* Auto-start tutorial after PWA install */
+window.addEventListener('appinstalled',function(){
+  hideTip();
+  TUTO.active=true;TUTO.step=1;
+  var cur=document.querySelector('.step.on');
+  if(cur)tutoForScreen(cur.id);
+});
+</script>
+</body>
+</html>
