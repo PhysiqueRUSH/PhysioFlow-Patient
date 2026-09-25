@@ -175,7 +175,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 65</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 66</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -814,6 +814,7 @@ function findPatientsForPhone(phone){
 }
 
 function tryStartBooking(){
+  window._pfForceNewPatient=false; /* v66 */
   /* Block desktop/tablet */
   if(!isMobileDevice()){showDeviceWarning();return;}
   /* Validate phone number first */
@@ -939,19 +940,21 @@ function backFromPicker(){
   showStep('sW');
 }
 function pickPatientAndContinue(idx){
+  window._pfForceNewPatient=false; /* v66 */
   var p=window._pickerPatients[idx];
   SEL_PATIENT.lastName=p.lastName;
   SEL_PATIENT.firstName=p.firstName;
   goStep(1);
 }
 function pickPatientOther(){
+  window._pfForceNewPatient=true; /* v66 : réservation pour un nouveau patient */
   SEL_PATIENT.lastName='';SEL_PATIENT.firstName='';
   goStep(1);
 }
 function showStep(id){
   /* Reset future agenda state when returning to welcome */
   if(id==='sW'){
-    window._usingFutureAgenda=false;window._patientDelayDays=0;
+    window._usingFutureAgenda=false;window._patientDelayDays=0;window._pfForceNewPatient=false;
     SEL.motif=null;SEL.date=null;SEL.time=null;SEL_PATIENT={lastName:'',firstName:''};
     /* v59 FIX: leaving the flow must disarm any pending reschedule, otherwise
        the next ordinary booking would silently cancel the old appointment. */
@@ -1300,11 +1303,23 @@ function renderMotifs(){
   var box=document.getElementById('motifChips');
   var motifsSource=window._usingFutureAgenda&&CFG.futureAgenda&&CFG.futureAgenda.motifs?CFG.futureAgenda.motifs:CFG.motifs;
   var visibleMotifs=motifsSource.filter(function(m){return !m.hiddenForPatient});
+  /* v66 — motifs réservés aux nouveaux patients / aux patients déjà venus
+     (pas de filtre pendant un décalage : le RDV existe déjà) */
+  if(!(typeof isRescheduling==='function'&&isRescheduling())){
+    var _known=_pfPatientIsKnown();
+    visibleMotifs=visibleMotifs.filter(function(m){return _pfMotifForMe(m,_known)});
+    if(SEL.motif&&!visibleMotifs.some(function(m){return m.id===SEL.motif.id})){SEL.motif=null;SEL.date=null;SEL.time=null;}
+  }
   /* Show banner if using future agenda */
   var banner='';
   if(window._usingFutureAgenda&&CFG.futureAgenda&&CFG.futureAgenda.date){
     var faD=new Date(CFG.futureAgenda.date+'T00:00:00');
     banner='<div style="padding:8px;background:#fff3cd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#8a6d3b;text-align:center">⚠️ Nouveaux motifs à partir du '+faD.getDate()+' '+MN[faD.getMonth()]+'</div>';
+  }
+  if(!visibleMotifs.length){ /* v66 */
+    var _pp=CFG.proPhone||'';
+    box.innerHTML=banner+'<div style="padding:14px 8px;text-align:center;font-size:13px;color:var(--text2);line-height:1.5">Aucun type de séance n\'est réservable en ligne pour votre profil.'+(_pp?'<br><a href="tel:'+esc(_pp)+'" style="font-weight:700;color:var(--accent)">📞 Contacter le cabinet</a>':'')+'</div>';
+    renderMotifDesc();return;
   }
   box.innerHTML=banner+visibleMotifs.map(function(m,i){
     var ci=m.ci!==undefined?m.ci:i;
@@ -1356,6 +1371,24 @@ function getMyNormPhone(){
   if(el&&el.value)ph=el.value;
   if(!ph){try{ph=(JSON.parse(localStorage.getItem('pf_patient')||'{}').phone)||''}catch(e){}}
   return _normPhoneMatch(ph);
+}
+/* v66 — « patient déjà venu » = un de ses numéros est connu du cabinet : fiche patient
+   chez le kiné (CFG.knownPatients) ou RDV existant non annulé avec ce numéro.
+   Choisir « ✨ Autre (nouveau patient) » dans le sélecteur force « nouveau patient ». */
+function _pfPatientIsKnown(){
+  if(window._pfForceNewPatient)return false;
+  var nums=[],m=getMyNormPhone();
+  if(m&&m.length>=8)nums.push(m);
+  try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var n=_normPhoneMatch(ep);if(n.length>=8&&nums.indexOf(n)<0)nums.push(n);});}catch(e){}
+  if(!nums.length)return false;
+  var kp=(CFG&&CFG.knownPatients)||[];
+  if(kp.some(function(k){return k&&k.ph&&nums.indexOf(k.ph)>=0}))return true;
+  return (APTS||[]).some(function(a){if(!a||a.cancelled||!a.patientPhone)return false;var n=_normPhoneMatch(a.patientPhone);return n.length>=8&&nums.indexOf(n)>=0;});
+}
+/* Motif proposé à ce patient ? (réglage « Visible sur l'appli patient pour » du kiné) */
+function _pfMotifForMe(m,known){
+  var a=m&&m.audience;
+  return !a||a==='all'||(a==='new'&&!known)||(a==='known'&&known);
 }
 function getMyNormName(){
   var s='';
