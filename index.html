@@ -175,7 +175,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 66</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 67</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -1124,7 +1124,7 @@ function _hoursUntilApt(ap){
 function _apSlotMax(ap){
   var motif=(CFG.motifs||[]).find(function(m){return m.id===ap.motifId});
   if(!motif)return 1;
-  return parseInt((motif.slotExceptions||{})[ap.time]||motif.slots||1)||1;
+  return parseInt((_slotExFor(ap.date,motif))[ap.time]||motif.slots||1)||1; /* v67 */
 }
 /* Dérogation 1 : le décalage vide entièrement un créneau multi-places */
 function _reschedEmptiesSlot(ap){
@@ -1527,7 +1527,7 @@ function checkDateHasSlots(dateKey){
   if(closedHolidayName(dateKey))return false; /* Closed French holiday => no availability */
   var motif=SEL.motif;
   var maxSlots=motif.slots||1;
-  var slotEx=motif.slotExceptions||{};
+  var slotEx=_slotExFor(dateKey,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice();
   if(!times.length){
     var dt=new Date(dateKey+'T00:00:00');
@@ -1545,6 +1545,8 @@ function checkDateHasSlots(dateKey){
     if(times.indexOf(x.time)>=0)return;
     if(extraSlotOpen(dateKey,x.time,motif.id,dayApts))times.push(x.time);
   });
+  /* v67 — ouvertures exceptionnelles */
+  _exoTimesFor(dateKey,motif.id).forEach(function(t){if(times.indexOf(t)<0)times.push(t)});
   if(!times.length)return false;
   _brkSatCache={}; /* v60 */
   var freeCount=0;
@@ -1578,7 +1580,7 @@ function checkDateHasSlots(dateKey){
     /* v64 — même restriction pour le grisage du calendrier */
     if(window._reschedExtraOnly&&window._rescheduleOldApId&&!_isX)continue;
     if(bookingsAtSlot<thisMax&&!generalOverlap&&slotVisibleToMe(dateKey,t,motif.id)
-       &&!slotBlockedByBreak(dateKey,t,motif,dayApts))freeCount++;
+       &&(isExoSlot(dateKey,t,motif.id)||!slotBlockedByBreak(dateKey,t,motif,dayApts)))freeCount++;
   }
   return freeCount>0;
 }
@@ -1675,8 +1677,35 @@ function _slotInsideBreak(dateKey,startMin,duration){
   var end=startMin+(duration||30);
   return ranges.some(function(r){return startMin>=r.f && end<=r.t;});
 }
-/* Liste des horaires d'un motif pour une date (mêmes règles que renderSlots) */
-function _motifTimesFor(dateKey,motif){
+/* ══════════════════════════════════════════════════════════════════
+   v67 — OUVERTURES EXCEPTIONNELLES (décidées par le kiné dans l'appli Pro)
+   CFG.exceptionalOpenings = [ {id,motifId,time,places,mode:'once'|'rec',
+                                date, dows:[1..6], from, to, skip:[dates]} ]
+   Un horaire de plus pour ce motif, aux dates de la règle, avec ses propres
+   places (ajoutées à celles du créneau s'il existe déjà). Il s'affiche comme
+   n'importe quel créneau : mêmes contrôles (chevauchement, visibilité,
+   délai de réservation…). Il n'est jamais retiré par la répartition
+   intelligente ni masqué par un break : c'est une ouverture voulue.
+   ══════════════════════════════════════════════════════════════════ */
+function _exoAt(dateKey){
+  var all=(CFG&&CFG.exceptionalOpenings)||[];
+  if(!Array.isArray(all))all=Object.keys(all).map(function(k){return all[k]});
+  if(!dateKey)return [];
+  var dow=new Date(dateKey+'T00:00:00').getDay();
+  return all.filter(function(r){
+    if(!r||!r.motifId||!r.time)return false;
+    if(Array.isArray(r.skip)&&r.skip.indexOf(dateKey)>=0)return false;
+    if(r.mode==='rec'){
+      var dows=Array.isArray(r.dows)?r.dows.map(Number):[];
+      return dows.indexOf(dow)>=0&&(!r.from||dateKey>=r.from)&&(!r.to||dateKey<=r.to);
+    }
+    return r.date===dateKey;
+  });
+}
+function isExoSlot(dateKey,time,motifId){return _exoAt(dateKey).some(function(r){return r.time===time&&r.motifId===motifId});}
+function _exoTimesFor(dateKey,motifId){var out=[];_exoAt(dateKey).forEach(function(r){if(r.motifId===motifId&&out.indexOf(r.time)<0)out.push(r.time)});return out;}
+/* Horaires habituels du motif (sans les ouvertures exceptionnelles) */
+function _motifNativeTimes(dateKey,motif){
   var times=(motif.times||[]).filter(Boolean).slice();
   if(!times.length){
     var dt=new Date(dateKey+'T00:00:00');
@@ -1686,6 +1715,24 @@ function _motifTimesFor(dateKey,motif){
       for(var m=s2;m+motif.duration<=e2;m+=motif.duration)times.push(m2t(m));
     });
   }
+  return times.sort(function(a,b){return t2m(a)-t2m(b)});
+}
+/* Places par horaire à cette date : exceptions du motif + places des ouvertures exceptionnelles */
+function _slotExFor(dateKey,motif){
+  var base=(motif&&motif.slotExceptions)||{};
+  var add={};
+  _exoAt(dateKey).forEach(function(r){if(r.motifId!==motif.id)return;var p=parseInt(r.places,10);if(!(p>=1))p=1;add[r.time]=(add[r.time]||0)+p;});
+  var keys=Object.keys(add);
+  if(!keys.length)return base;
+  var ex={};Object.keys(base).forEach(function(k){ex[k]=base[k]});
+  var nat=_motifNativeTimes(dateKey,motif);
+  keys.forEach(function(t){ex[t]=(nat.indexOf(t)>=0?(parseInt(base[t]||motif.slots||1,10)||1):0)+add[t];});
+  return ex;
+}
+/* Liste des horaires d'un motif pour une date (mêmes règles que renderSlots) */
+function _motifTimesFor(dateKey,motif){
+  var times=_motifNativeTimes(dateKey,motif);
+  _exoTimesFor(dateKey,motif.id).forEach(function(t){if(times.indexOf(t)<0)times.push(t)}); /* v67 */
   return times.sort(function(a,b){return t2m(a)-t2m(b)});
 }
 /* Un créneau donné est-il déjà occupé (hors visibilité patient) ? */
@@ -1708,7 +1755,7 @@ function _breakHalfSaturated(dateKey,motif,half,dayApts){
   var ck=dateKey+'|'+motif.id+'|'+half+'|'+dayApts.length;
   if(_brkSatCache[ck]!==undefined)return _brkSatCache[ck];
   var maxSlots=motif.slots||1;
-  var slotEx=motif.slotExceptions||{};
+  var slotEx=_slotExFor(dateKey,motif); /* v67 */
   var times=_motifTimesFor(dateKey,motif);
   var anyFree=false;
   for(var i=0;i<times.length;i++){
@@ -2188,7 +2235,7 @@ function renderSlots(){
   
   var motif=SEL.motif;
   var maxSlots=motif.slots||1;
-  var slotEx=motif.slotExceptions||{};
+  var slotEx=_slotExFor(SEL.date,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice().sort(function(a,b){return t2m(a)-t2m(b)});
 
   /* If no typical times defined, generate from openings */
@@ -2241,6 +2288,8 @@ function renderSlots(){
     if(times.indexOf(x.time)>=0)return;
     if(extraSlotOpen(SEL.date,x.time,motif.id,dayApts))times.push(x.time);
   });
+  /* v67 — ouvertures exceptionnelles : toujours proposées (ajoutées après la répartition) */
+  _exoTimesFor(SEL.date,motif.id).forEach(function(t){if(times.indexOf(t)<0)times.push(t)});
   times.sort(function(a,b){return t2m(a)-t2m(b)});
 
   var dateObj=new Date(SEL.date+'T00:00:00');
@@ -2286,7 +2335,7 @@ function renderSlots(){
     /* Hidden/restricted slot for this patient => render exactly like a full slot */
     var hiddenForMe=!slotVisibleToMe(SEL.date,t,motif.id);
     /* v60 — Break : même traitement (affiché comme complet, jamais cliquable) */
-    var brkBlocked=slotBlockedByBreak(SEL.date,t,motif,dayApts);
+    var brkBlocked=!isExoSlot(SEL.date,t,motif.id)&&slotBlockedByBreak(SEL.date,t,motif,dayApts); /* v67 */
     /* v63 — la place supplémentaire se superpose volontairement au créneau
        multi-places : le contrôle de chevauchement ne s'y applique pas.
        Un Break, lui, reste prioritaire (c'est une fermeture explicite). */
@@ -2385,7 +2434,7 @@ function doBook(){
   var tm=t2m(SEL.time);
   var dur=SEL.motif.duration||30;
   var maxSlots=SEL.motif.slots||1;
-  var _slotEx=SEL.motif.slotExceptions||{};
+  var _slotEx=_slotExFor(SEL.date,SEL.motif); /* v67 */
   var thisMaxSlots=_slotEx[SEL.time]||maxSlots;
   /* v59: the appointment being moved must not block its own new slot */
   var dayApts=APTS.filter(function(a){
@@ -2419,7 +2468,7 @@ function doBook(){
   if(!slotVisibleToMe(SEL.date,SEL.time,SEL.motif.id)){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
   /* v60 — re-vérification du break au moment de valider */
   _brkSatCache={};
-  if(slotBlockedByBreak(SEL.date,SEL.time,SEL.motif,dayApts)){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
+  if(!isExoSlot(SEL.date,SEL.time,SEL.motif.id)&&slotBlockedByBreak(SEL.date,SEL.time,SEL.motif,dayApts)){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
   /* v63 — la place supplémentaire n'est plus offerte si le créneau
      multi-places d'origine s'est rempli entre-temps */
   if(isExtraSlot(SEL.date,SEL.time,SEL.motif.id)&&!extraSlotOpen(SEL.date,SEL.time,SEL.motif.id,dayApts)){
