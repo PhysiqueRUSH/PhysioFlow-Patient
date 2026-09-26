@@ -63,6 +63,13 @@ input,select,textarea{font-family:inherit;color:var(--text);font-size:14px}
   cursor:pointer;padding:0 2px;opacity:.65}
 .annBox .annClose:active{opacity:1}
 .annBox .annText{font-size:13px;color:var(--text);white-space:pre-wrap;line-height:1.5}
+/* v68 — annonce repliée : le titre seul, un appui redéploie le message */
+.annBox .annHead.annTap{cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.annBox .annChev{flex-shrink:0;color:#b35309;font-size:12px;font-weight:700;line-height:1.2;padding:3px 0 0 4px;opacity:.8;white-space:nowrap}
+.annBox.annFold{animation:none;padding:9px 13px;border-width:1.5px;background:#fffaf3}
+.annBox.annFold .annHead{margin-bottom:0}
+.annBox.annFold .annTitle{font-size:13.5px}
+.annBox .annHead:last-child{margin-bottom:0}
 
 /* Steps */
 .step{display:none;animation:fadeIn .3s ease}
@@ -175,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 67</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 68</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -1463,8 +1470,38 @@ function _dismissedAnn(){
 function getAnnouncements(){
   var list=(CFG&&CFG.announcements)||[];
   if(!Array.isArray(list)||!list.length)return [];
-  var seen=_dismissedAnn();
-  return list.filter(function(a){return a&&a.id&&seen.indexOf(a.id)<0&&(a.text||a.title)});
+  /* v68 — plus aucune annonce n'est masquée : celles fermées avant (✕) restent repliées sur leur titre */
+  return list.filter(function(a){return a&&a.id&&(a.text||a.title)});
+}
+/* v68 — annonces repliées : identifiant + empreinte du texte (si le kiné modifie l'annonce, elle se redéploie) */
+var _annFoldMem=null;
+function _annKey(a){
+  var s=String(a.title||'')+'|'+String(a.text||''),h=0;
+  for(var i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;}
+  return String(a.id)+':'+(h>>>0).toString(36);
+}
+function _foldedAnn(){
+  if(_annFoldMem)return _annFoldMem;
+  try{var a=JSON.parse(localStorage.getItem('pf_foldedAnn')||'[]');_annFoldMem=Array.isArray(a)?a:[];}
+  catch(e){_annFoldMem=[];}
+  return _annFoldMem;
+}
+function _annIsFolded(a){
+  if(!a.text)return false;
+  return _foldedAnn().indexOf(_annKey(a))>=0||_dismissedAnn().indexOf(a.id)>=0;
+}
+function toggleAnnouncement(id){
+  var a=((CFG&&CFG.announcements)||[]).find(function(x){return x&&x.id===id});
+  if(!a||!a.text)return;
+  var f=_foldedAnn(),k=_annKey(a),i=f.indexOf(k),was=_annIsFolded(a);
+  if(was){
+    if(i>=0)f.splice(i,1);
+    /* une annonce fermée avec l'ancien ✕ : on la retire aussi de cette liste */
+    try{var d=_dismissedAnn(),j=d.indexOf(a.id);if(j>=0){d.splice(j,1);localStorage.setItem('pf_dismissedAnn',JSON.stringify(d));}}catch(e){}
+  }else if(i<0)f.push(k);
+  if(f.length>60)f.splice(0,f.length-60);
+  try{localStorage.setItem('pf_foldedAnn',JSON.stringify(f));}catch(e){/* gardé pour cette session */}
+  renderMyAlerts();
 }
 function dismissAnnouncement(id){
   try{
@@ -1486,15 +1523,16 @@ function renderMyAlerts(){
   var proName=(CFG&&CFG.proName)||'votre kinésithérapeute';
   var h='';
 
-  /* 1) Annonces générales — encadré orange, masquable par le patient */
+  /* 1) Annonces générales — encadré orange ; v68 : un appui sur le titre replie / redéploie le message */
   h+=anns.map(function(a){
-    return '<div class="annBox">'+
-      '<div class="annHead">'+
+    var fold=_annIsFolded(a),tap=!!a.text;
+    return '<div class="annBox'+(fold?' annFold':'')+'">'+
+      '<div class="annHead'+(tap?' annTap':'')+'"'+(tap?' role="button" tabindex="0" aria-expanded="'+(!fold)+'" onclick="toggleAnnouncement(\''+esc(a.id)+'\')"':'')+'>'+
         '<span class="annIcon">'+esc(a.icon||'📣')+'</span>'+
         '<span class="annTitle">'+esc(a.title||'Annonce')+'</span>'+
-        '<button class="annClose" title="Masquer" onclick="dismissAnnouncement(\''+esc(a.id)+'\')">✕</button>'+
+        (tap?'<span class="annChev">'+(fold?'Lire ▾':'▴')+'</span>':'')+
       '</div>'+
-      (a.text?'<div class="annText">'+esc(a.text)+'</div>':'')+
+      (a.text&&!fold?'<div class="annText">'+esc(a.text)+'</div>':'')+
     '</div>';
   }).join('');
 
