@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 68</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 69</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -831,6 +831,8 @@ function tryStartBooking(){
     document.getElementById('myPhone').focus();
     return;
   }
+  /* v69 — patient bloqué : rendez-vous indisponibles */
+  if(_pfBlockedFor(getMyNormName())){_pfBlockedStop();return;}
   /* Vacation mode check */
   var vac=CFG.vacationMode||{};
   if(vac.enabled){
@@ -980,7 +982,31 @@ function showStep(id){
     if(onFlow&&window._rescheduleOldApId&&typeof updateReschedBanner==='function')updateReschedBanner();
   }
 }
+/* v69 — patient bloqué par le kiné (CFG.knownPatients[].b) : numéro dont tous les patients sont bloqués,
+   ou personne bloquée désignée par son nom (numéro partagé en famille, ou fiche sans téléphone) */
+function _pfBlockedFor(name){
+  var kp=((CFG&&CFG.knownPatients)||[]).filter(Boolean);
+  if(!kp.some(function(k){return k.b}))return false;
+  var nums=[],m=getMyNormPhone();
+  if(m&&m.length>=8)nums.push(m);
+  try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var x=_normPhoneMatch(ep);if(x.length>=8&&nums.indexOf(x)<0)nums.push(x);});}catch(e){}
+  var nm=String(name||'').trim().toLowerCase();
+  var same=function(x){return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
+  for(var i=0;i<nums.length;i++){
+    var ph=nums[i],B=kp.filter(function(k){return k.b&&k.ph&&k.ph===ph});
+    if(!B.length)continue;
+    if(!kp.some(function(k){return !k.b&&k.ph===ph}))return true;
+    if(B.some(function(k){return same(k.name)}))return true;
+  }
+  return nm.length>4&&kp.some(function(k){return k.b&&(!k.ph||String(k.ph).length<8)&&k.name===nm});
+}
+function _pfSelName(){var n=((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')).trim();return n||getMyNormName();}
+function _pfBlockedStop(){
+  try{if(typeof clearReschedule==='function'&&window._rescheduleOldApId)clearReschedule();}catch(e){}
+  showRefuseScreen('blocked',CFG.proName||'votre kinésithérapeute',CFG.proPhone||'');
+}
 function goStep(n){
+  if((n===1||n===2)&&_pfBlockedFor(_pfSelName())){_pfBlockedStop();return;} /* v69 */
   if(n===1){
     showStep('s1');renderMotifs();return;
   }
@@ -2991,7 +3017,12 @@ function showVacationScreen(msg){
 }
 function showRefuseScreen(type,proName,proPhone){
   var title,msg,actions;
-  if(type==='newPatient'){
+  if(type==='blocked'){ /* v69 */
+    title='Rendez-vous indisponibles';
+    msg='La prise de rendez-vous en ligne n\'est pas disponible pour vous.<br><br>Pour toute question, contactez <b>'+esc(proName)+'</b> via la messagerie.';
+    actions='<button class="btn bp" onclick="showStep(\'sW\')" style="flex:1">🏠 Accueil</button>';
+    actions+='<button class="btn bs" onclick="openContactKine()" style="flex:1">💬 Contacter le kiné</button>';
+  } else if(type==='newPatient'){
     title='Agenda actuellement complet';
     msg='Du fait de la saturation actuelle de son agenda, <b>'+esc(proName)+'</b> n\'accepte pas de nouveaux patients pour le moment.<br><br>N\'hésitez pas à réessayer ultérieurement ou à le contacter via la messagerie.';
     actions='<button class="btn bp" onclick="showStep(\'sW\')" style="flex:1">🏠 Accueil</button>';
@@ -3037,6 +3068,7 @@ function doCloseApp(){
   },600);
 }
 function joinWaitlist(){
+  if(_pfBlockedFor(_pfSelName())){toast('Rendez-vous indisponibles');return;} /* v69 */
   var ph=(document.getElementById('myPhone').value||'').trim();
   var name=prompt('Votre nom et prénom :','');
   if(!name){toast('Inscription annulée');return;}
