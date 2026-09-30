@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 70</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 71</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -1592,16 +1592,7 @@ function checkDateHasSlots(dateKey){
   var motif=SEL.motif;
   var maxSlots=motif.slots||1;
   var slotEx=_slotExFor(dateKey,motif); /* v67 */
-  var times=(motif.times||[]).filter(Boolean).slice();
-  if(!times.length){
-    var dt=new Date(dateKey+'T00:00:00');
-    var dow=dt.getDay();
-    var ops=(CFG.openings||[]).filter(function(o){return o.day===dow});
-    ops.forEach(function(o){
-      var s=t2m(o.start),e=t2m(o.end);
-      for(var m=s;m+motif.duration<=e;m+=motif.duration){times.push(m2t(m))}
-    });
-  }
+  var times=(motif.times||[]).filter(Boolean).slice(); /* v71 — pas d'heure typique = aucun créneau régulier (seules les ouvertures exceptionnelles de ce motif) */
   var dayApts=APTS.filter(function(a){return a.date===dateKey&&!a.cancelled});
   /* v63 — places supplémentaires encore offertes */
   _extraLinksAt(dateKey).forEach(function(x){
@@ -1795,15 +1786,7 @@ function forcedExoOpenOn(dateKey,motif,nowMs){
 }
 /* Horaires habituels du motif (sans les ouvertures exceptionnelles) */
 function _motifNativeTimes(dateKey,motif){
-  var times=(motif.times||[]).filter(Boolean).slice();
-  if(!times.length){
-    var dt=new Date(dateKey+'T00:00:00');
-    var dow=dt.getDay();
-    (CFG.openings||[]).filter(function(o){return o.day===dow}).forEach(function(o){
-      var s2=t2m(o.start),e2=t2m(o.end);
-      for(var m=s2;m+motif.duration<=e2;m+=motif.duration)times.push(m2t(m));
-    });
-  }
+  var times=(motif.times||[]).filter(Boolean).slice(); /* v71 — pas d'heure typique = aucun créneau régulier (seules les ouvertures exceptionnelles de ce motif) */
   return times.sort(function(a,b){return t2m(a)-t2m(b)});
 }
 /* Places par horaire à cette date : exceptions du motif + places des ouvertures exceptionnelles */
@@ -2328,18 +2311,7 @@ function renderSlots(){
   var slotEx=_slotExFor(SEL.date,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice().sort(function(a,b){return t2m(a)-t2m(b)});
 
-  /* If no typical times defined, generate from openings */
-  if(!times.length){
-    var dt=new Date(SEL.date+'T00:00:00');
-    var dow=dt.getDay();
-    var ops=(CFG.openings||[]).filter(function(o){return o.day===dow});
-    ops.forEach(function(o){
-      var s=t2m(o.start),e=t2m(o.end);
-      for(var m=s;m+motif.duration<=e;m+=motif.duration){
-        times.push(m2t(m));
-      }
-    });
-  }
+  /* v71 — pas d'heure typique = aucun créneau régulier (seules les ouvertures exceptionnelles de ce motif) */
 
   /* Check booking rules: filter out times too soon */
   var rules=CFG.bookingRules||{};
