@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 69</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 70</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -1026,7 +1026,7 @@ function goStep(n){
     for(var _d=new Date(_now);_d<=_maxDate;_d.setDate(_d.getDate()+1)){
       var _dk=dk(_d);
       var _onVac=false;_vacP.forEach(function(v){if(v.from&&v.to&&_dk>=v.from&&_dk<=v.to)_onVac=true});
-      if(CFG.days.includes(_d.getDay())&&_d>=_minDate&&!_onVac){
+      if(CFG.days.includes(_d.getDay())&&(_d>=_minDate||forcedExoOpenOn(_dk,SEL.motif))&&!_onVac){ /* v70 */
         calView=new Date(_d.getFullYear(),_d.getMonth(),1);
         window._firstAvailDay=_d.getDate(); /* remember for renderCal */
         window._firstAvailMonth=_d.getMonth();
@@ -1641,6 +1641,7 @@ function checkDateHasSlots(dateKey){
         return tm<ae && (tm+(motif.duration||30))>as;
       });
     }
+    if(!_isX&&isForcedExo(dateKey,t,motif.id))generalOverlap=_forcedAbsOverlap(dateKey,t,motif,dayApts); /* v70 */
     /* v64 — même restriction pour le grisage du calendrier */
     if(window._reschedExtraOnly&&window._rescheduleOldApId&&!_isX)continue;
     if(bookingsAtSlot<thisMax&&!generalOverlap&&slotVisibleToMe(dateKey,t,motif.id)
@@ -1768,6 +1769,30 @@ function _exoAt(dateKey){
 }
 function isExoSlot(dateKey,time,motifId){return _exoAt(dateKey).some(function(r){return r.time===time&&r.motifId===motifId});}
 function _exoTimesFor(dateKey,motifId){var out=[];_exoAt(dateKey).forEach(function(r){if(r.motifId===motifId&&out.indexOf(r.time)<0)out.push(r.time)});return out;}
+/* v70 — ouverture exceptionnelle « forcée » (réglage par défaut du kiné) : proposée malgré les délais minimum
+   et maximum de réservation et malgré l'interdiction de simultanéité avec un autre motif.
+   Une absence du kiné, les places et les masquages de créneaux restent respectés. */
+function isForcedExo(dateKey,time,motifId){return _exoAt(dateKey).some(function(r){return r.time===time&&r.motifId===motifId&&r.force!==false});}
+function _forcedAbsOverlap(dateKey,time,motif,dayApts){
+  var tm=t2m(time),be=tm+(motif.duration||30);
+  return dayApts.some(function(a){if(!a||a.type!=='absence'||a.cancelled)return false;var as=t2m(a.time||'00:00'),ae=as+(a.duration||30);return tm<ae&&be>as;});
+}
+/* ce jour-là, une ouverture forcée de ce motif encore à venir, avec une place libre ? */
+function forcedExoOpenOn(dateKey,motif,nowMs){
+  if(!motif||!dateKey)return false;
+  var list=_exoAt(dateKey).filter(function(r){return r.motifId===motif.id&&r.force!==false});
+  if(!list.length)return false;
+  var now=nowMs||Date.now();
+  var dayApts=APTS.filter(function(a){return a&&a.date===dateKey&&!a.cancelled&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)});
+  var slotEx=_slotExFor(dateKey,motif);
+  return list.some(function(r){
+    var tm=t2m(r.time),d=new Date(dateKey+'T00:00:00');d.setHours(Math.floor(tm/60),tm%60,0,0);
+    if(d.getTime()<=now)return false;
+    var max=parseInt(slotEx[r.time]||motif.slots||1,10)||1;
+    var n=dayApts.filter(function(a){return a.motifId===motif.id&&a.time===r.time}).length;
+    return n<max&&slotVisibleToMe(dateKey,r.time,motif.id)&&!_forcedAbsOverlap(dateKey,r.time,motif,dayApts);
+  });
+}
 /* Horaires habituels du motif (sans les ouvertures exceptionnelles) */
 function _motifNativeTimes(dateKey,motif){
   var times=(motif.times||[]).filter(Boolean).slice();
@@ -1903,7 +1928,7 @@ function renderCal(){
     var fdt=new Date(y,m,fd);
     var fk=dk(fdt);
     var fOnVac=false;vacPeriods.forEach(function(v){if(v.from&&v.to&&fk>=v.from&&fk<=v.to)fOnVac=true});
-    if(CFG.days.includes(fdt.getDay())&&fdt>=minDate&&fdt<=maxDate&&!fOnVac){firstAvail=fd;break}
+    if(CFG.days.includes(fdt.getDay())&&((fdt>=minDate&&fdt<=maxDate)||(fdt>=today&&forcedExoOpenOn(fk,SEL.motif)))&&!fOnVac){firstAvail=fd;break} /* v70 */
   }
   /* Use remembered firstAvailDay if we're on the auto-navigated month */
   if(window._firstAvailDay&&window._firstAvailMonth===m&&window._firstAvailYear===y){
@@ -1957,6 +1982,7 @@ function renderCal(){
     var past=dt<today;
     var onVacation=false;
     vacPeriods.forEach(function(v){if(v.from&&v.to&&k>=v.from&&k<=v.to)onVacation=true});
+    if(!past&&!onVacation&&(tooSoon||tooLate)&&forcedExoOpenOn(k,SEL.motif)){tooSoon=false;tooLate=false;} /* v70 : ouverture forcée */
     var dis=!ok||tooSoon||tooLate||past||onVacation;
     var sel=SEL.date===k;
     var isToday=k===todayK;
@@ -2321,6 +2347,12 @@ function renderSlots(){
   var now=new Date();
   var minTime=new Date(now.getTime()+minH*3600000);
   var selDate=new Date(SEL.date+'T00:00:00');
+  /* v70 — jour hors délais (ouvert seulement grâce à une ouverture forcée) : ses autres horaires restent fermés */
+  var _mD=new Date(now.getTime()+minH*3600000);
+  if(window._patientDelayDays>0){var _dd=new Date(now);_dd.setDate(_dd.getDate()+window._patientDelayDays);_dd.setHours(0,0,0,0);if(_dd>_mD)_mD=_dd;}
+  var _xD=new Date(now);_xD.setDate(_xD.getDate()+(rules.maxDaysAhead||60));
+  if(window._rescheduleMaxDate){var _rM=new Date(window._rescheduleMaxDate+'T00:00:00');_rM.setDate(_rM.getDate()-1);if(_rM<_xD)_xD=_rM;}
+  var _dayOut=selDate<new Date(_mD.getFullYear(),_mD.getMonth(),_mD.getDate())||selDate>_xD;
 
   /* Get existing appointments for this date and this motif */
   /* v59: while rescheduling, the appointment being moved must not make its
@@ -2420,11 +2452,13 @@ function renderSlots(){
     }
     /* v64 — report hors délai autorisé uniquement vers une place supplémentaire */
     var restrictedOut=(window._reschedExtraOnly&&window._rescheduleOldApId&&!isExtra);
+    var _forced=!isExtra&&isForcedExo(SEL.date,t,motif.id); /* v70 */
+    if(_forced)generalOverlap=_forcedAbsOverlap(SEL.date,t,motif,dayApts);
     var taken=bookingsAtSlot>=thisMaxSlots || generalOverlap || hiddenForMe || brkBlocked || restrictedOut;
     /* Check if too soon */
     var slotDate=new Date(selDate);
     slotDate.setHours(Math.floor(tm/60),tm%60,0,0);
-    var tooSoon=slotDate<minTime;
+    var tooSoon=_forced?(slotDate.getTime()<=Date.now()):(slotDate<minTime||_dayOut);
     var dis=taken||tooSoon;
     var sel=SEL.time===t;
     var remaining=thisMaxSlots-bookingsAtSlot;
@@ -2526,6 +2560,7 @@ function doBook(){
       return tm<ae && (tm+dur)>as;
     });
   }
+  if(!isExtraSlot(SEL.date,SEL.time,SEL.motif.id)&&isForcedExo(SEL.date,SEL.time,SEL.motif.id))generalOverlap=_forcedAbsOverlap(SEL.date,SEL.time,SEL.motif,dayApts); /* v70 */
   var conflict=sameSlotCount>=thisMaxSlots || generalOverlap;
   if(conflict){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
   /* Respect per-patient slot visibility (slot may be restricted/hidden for this patient) */
