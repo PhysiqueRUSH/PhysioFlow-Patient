@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 73</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 74</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -311,11 +311,12 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div class="step" id="s4">
     <div class="card">
       <h2>👤 Vos informations</h2>
+      <div id="pForWho" style="display:none;margin:-4px 0 10px;padding:8px 10px;background:var(--accentbg);border-radius:10px;font-size:12px;line-height:1.45"></div>
       <div class="fr">
         <div class="fg"><label>Nom</label><input id="pLast" placeholder="Votre nom" oninput="this.value=this.value.toUpperCase()"></div>
         <div class="fg"><label>Prénom</label><input id="pFirst" placeholder="Votre prénom" oninput="this.value=this.value.toLowerCase().replace(/(?:^|\s|-)\S/g,function(c){return c.toUpperCase()})"></div>
       </div>
-      <div class="fg"><label>Téléphone</label><input type="tel" id="pPhone" placeholder="Votre numéro de téléphone portable..."></div>
+      <div class="fg"><label id="pPhoneLbl">Téléphone</label><input type="tel" id="pPhone" placeholder="Votre numéro de téléphone portable..."></div>
       <div id="extraPhonesWrap"></div>
       <div style="margin-bottom:10px">
         <button type="button" id="btnAddPhone" onclick="addExtraPhone()" style="font-size:11px;color:var(--text2);background:none;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;cursor:pointer">+ Ajouter un numéro supplémentaire</button>
@@ -603,6 +604,8 @@ function requestPatientNotif(patientId){
         if(token && patientId){
           _fcmRetryCount=0; /* Reset retry on success */
           REF.child('fcmTokens/patients/'+patientId).set(token);
+          /* v74 — chaque personne soignée enregistrée sur ce téléphone */
+          try{_pfPeopleLoad().forEach(function(pp){if(pp&&pp.id&&pp.id!==patientId&&/^[\w-]{1,120}$/.test(pp.id))REF.child('fcmTokens/patients/'+pp.id).set(token);});}catch(e1){}
           /* Also register under normalized phone so Cloud Function can find token for pro-created appointments */
           try{
             var saved=JSON.parse(localStorage.getItem('pf_patient')||'{}');
@@ -797,6 +800,61 @@ function getExtraPhones(){
 /* ═══ NAVIGATION ═══ */
 /* Track selected patient identity for multi-patient phones */
 var SEL_PATIENT={lastName:'',firstName:''};
+/* ═══ v74 — PLUSIEURS PATIENTS POUR UN MÊME TÉLÉPHONE ═══
+   Une personne réserve pour elle-même et pour ses proches (enfant, conjoint…) avec son téléphone.
+   Chaque personne soignée a son identifiant sur l'appareil (pf_people) : le RDV est à son nom,
+   le téléphone reste le contact. Le kiné reçoit une fiche par personne (factures séparées). */
+function _pfSameName(l1,f1,l2,f2){var a=_pfNm(l1),b=_pfNm(f1),c=_pfNm(l2),d=_pfNm(f2);if(!a||!c)return false;return (a===c&&b===d)||(a===d&&b===c);}
+function _pfPeopleSave(L){try{localStorage.setItem('pf_people',JSON.stringify((L||[]).slice(-15)));}catch(e){}}
+function _pfNewPid(){return 'pp_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function _pfPeopleLoad(){
+  var raw=null;try{raw=localStorage.getItem('pf_people');}catch(e){}
+  if(raw===null){
+    /* 1re ouverture de la v74 : la personne déjà enregistrée sur l'appareil, avec son identifiant habituel */
+    var L=[];
+    try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}'),dev=localStorage.getItem('pf_patientId')||'';if((o.lastName||o.firstName)&&dev)L.push({id:dev,lastName:o.lastName||'',firstName:o.firstName||''});}catch(e){}
+    _pfPeopleSave(L);return L;
+  }
+  try{var L2=JSON.parse(raw);return Array.isArray(L2)?L2.filter(function(p){return p&&p.id&&(p.lastName||p.firstName)}):[];}catch(e){return [];}
+}
+/* nom d'un RDV (« NOM Prénom ») et découpage (le NOM est en majuscules) */
+function _pfApName(a){return String((a&&(a.patientName||((a.patientLastName||'')+' '+(a.patientFirstName||''))))||'').trim();}
+function _pfSplitName(n){var t=String(n||'').trim().split(/\s+/).filter(Boolean),i=0;while(i<t.length-1&&t[i]===t[i].toUpperCase()&&/[A-ZÀ-Ý]/.test(t[i]))i++;if(i===0)i=1;return {lastName:t.slice(0,i).join(' '),firstName:t.slice(i).join(' ')};}
+/* personnes de ce téléphone : mémorisées sur l'appareil + celles qui ont déjà un RDV avec ce numéro */
+function _pfPeopleForPhone(){
+  var L=_pfPeopleLoad(),out=L.slice(),chg=false;
+  findPatientsForPhone((document.getElementById('myPhone')||{}).value||'').forEach(function(p){
+    /* même identifiant que la fiche du cabinet : c'est la même personne, avec le nom de sa fiche */
+    var same=p.patientId?out.filter(function(x){return x.id&&x.id===p.patientId})[0]:null;
+    if(same){if(!_pfSameName(same.lastName,same.firstName,p.lastName,p.firstName)){same.lastName=p.lastName;same.firstName=p.firstName;chg=true;}return;}
+    if(out.some(function(x){return _pfSameName(x.lastName,x.firstName,p.lastName,p.firstName)}))return;
+    out.push({id:'',lastName:p.lastName,firstName:p.firstName});
+  });
+  if(chg)_pfPeopleSave(L);
+  /* doublons possibles après correction d'un nom */
+  var seen={};out=out.filter(function(x){var k=_pfNm(x.lastName+' '+x.firstName);if(seen[k])return false;seen[k]=1;return true;});
+  return out;
+}
+/* identifiant de la personne soignée pour une réservation (créé si besoin) */
+function _pfPidFor(ln,fn){
+  var L=_pfPeopleLoad(),p=null,dev='';
+  try{dev=localStorage.getItem('pf_patientId')||'';}catch(e){}
+  if(SEL_PATIENT&&SEL_PATIENT.id&&_pfSameName(SEL_PATIENT.lastName,SEL_PATIENT.firstName,ln,fn))p={id:SEL_PATIENT.id};
+  if(!p)L.forEach(function(x){if(!p&&_pfSameName(x.lastName,x.firstName,ln,fn))p={id:x.id};});
+  if(!p)p={id:(dev&&!L.some(function(x){return x.id===dev}))?dev:_pfNewPid()}; /* 1re personne : identifiant habituel de l'appareil */
+  var i=-1;L.forEach(function(x,k){if(x.id===p.id)i=k;});
+  if(i>=0){L[i].lastName=ln;L[i].firstName=fn;}else L.push({id:p.id,lastName:ln,firstName:fn});
+  _pfPeopleSave(L);
+  if(!dev){try{localStorage.setItem('pf_patientId',p.id);}catch(e){}}
+  return p.id;
+}
+/* personne d'un RDV existant (décalage) */
+function _pfPersonOfAp(ap){
+  var n=_pfApName(ap);if(!n)return null;
+  var sp=_pfSplitName(n),p=null;
+  _pfPeopleLoad().forEach(function(x){if(!p&&_pfSameName(x.lastName,x.firstName,sp.lastName,sp.firstName))p=x;});
+  return {id:p?p.id:'',lastName:sp.lastName,firstName:sp.firstName};
+}
 
 function findPatientsForPhone(phone){
   if(!phone||!APTS||!APTS.length)return [];
@@ -806,7 +864,7 @@ function findPatientsForPhone(phone){
   if(normPh.length<8)return [];
   var seen={};var patients=[];
   APTS.forEach(function(a){
-    if(a.cancelled||!a.patientPhone||!a.patientName)return;
+    if(!_pfSeance(a)||!a.patientPhone||!a.patientName)return; /* v74 */
     var aPh=(a.patientPhone||'').replace(/\D/g,'');
     if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
     if(aPh.startsWith('0'))aPh=aPh.substring(1);
@@ -825,6 +883,7 @@ function findPatientsForPhone(phone){
 
 function tryStartBooking(){
   window._pfForceNewPatient=false; /* v66 */
+  SEL_PATIENT={lastName:'',firstName:''}; /* v74 */
   /* Block desktop/tablet */
   if(!isMobileDevice()){showDeviceWarning();return;}
   /* Validate phone number first */
@@ -834,8 +893,9 @@ function tryStartBooking(){
     document.getElementById('myPhone').focus();
     return;
   }
-  /* v69 — patient bloqué : rendez-vous indisponibles */
-  if(_pfBlockedFor(getMyNormName())){_pfBlockedStop();return;}
+  /* v69 — patient bloqué : rendez-vous indisponibles (v74 : ici, seulement si TOUS les patients de ce numéro sont bloqués ;
+     la personne choisie est vérifiée juste après « Pour qui ? ») */
+  if(_pfBlockedFor('')){_pfBlockedStop();return;}
   /* Vacation mode check */
   var vac=CFG.vacationMode||{};
   if(vac.enabled){
@@ -845,106 +905,74 @@ function tryStartBooking(){
       return;
     }
   }
-  /* Early refuse check: use saved phone or prompt */
-  var rules=CFG.bookingRules||{};
-  var proName=CFG.proName||'votre kinésithérapeute';
-  var proPhone=CFG.proPhone||'';
-  var needsCheck=!!(rules.refuseNewPatients||CFG.refuseNewPatients||rules.refuseNewTreatments||CFG.refuseNewTreatments||rules.delayNewPatients||CFG.delayNewPatients);
-  if(needsCheck){
-    var ph=(document.getElementById('myPhone').value||'').trim();
-    if(!ph||ph.length<8){
-      toast('Entrez votre numéro de téléphone ci-dessous');
-      document.getElementById('myPhone').focus();
-      return;
-    }
-    var normPh=ph.replace(/[\s\-\.]/g,'').replace(/\D/g,'');
-    if(normPh.startsWith('33')&&normPh.length>9)normPh=normPh.substring(2);
-    if(normPh.startsWith('0'))normPh=normPh.substring(1);
-    /* Check against knownPatients list from pro config */
-    var knownPats=CFG.knownPatients||[];
-    var isKnown=knownPats.some(function(kp){return kp.ph&&kp.ph===normPh});
-    var isInactive=knownPats.some(function(kp){return kp.ph&&kp.ph===normPh&&kp.inactive});
-    /* Also check APTS for phone match (covers patient-booked that pro may not have in list yet) */
-    if(!isKnown){
-      isKnown=APTS.some(function(a){
-        if(a.cancelled||!a.patientPhone)return false;
-        var aPh=a.patientPhone.replace(/\D/g,'');
-        if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-        if(aPh.startsWith('0'))aPh=aPh.substring(1);
-        return aPh===normPh&&aPh.length>=8;
-      });
-    }
-    /* Also check by name (last+first entered in step 4) - fallback */
-    var enteredName=((document.getElementById('pLast')?document.getElementById('pLast').value:'')+' '+(document.getElementById('pFirst')?document.getElementById('pFirst').value:'')).trim().toLowerCase();
-    if(!isKnown&&enteredName.length>4){
-      isKnown=knownPats.some(function(kp){return kp.name&&(kp.name===enteredName||enteredName.indexOf(kp.name)>=0||kp.name.indexOf(enteredName)>=0)});
-    }
-
-    if(rules.refuseNewPatients||CFG.refuseNewPatients){
-      if(!isKnown){
-        showRefuseScreen('newPatient',proName,proPhone);
-        return;
-      }
-    }
-    if(rules.refuseNewTreatments||CFG.refuseNewTreatments){
-      if(!isKnown||isInactive){
-        var inactiveMonths=(rules.refuseInactiveMonths||CFG.refuseInactiveMonths||3);
-        var cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-inactiveMonths);
-        var cutoffKey=dk(cutoff);
-        var hasRecent=APTS.some(function(a){
-          if(a.cancelled||!a.patientPhone)return false;
-          var aPh=a.patientPhone.replace(/\D/g,'');
-          if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-          if(aPh.startsWith('0'))aPh=aPh.substring(1);
-          return aPh===normPh&&aPh.length>=8&&a.date>=cutoffKey;
-        });
-        if(!hasRecent){
-          showRefuseScreen(isKnown?'newTreatment':'newPatient',proName,proPhone);
-          return;
-        }
-      }
-    }
-    /* Delay mode: new/inactive patients can only book X days ahead */
-    if(rules.delayNewPatients||CFG.delayNewPatients){
-      if(!isKnown||isInactive){
-        var delayDays=(rules.delayNewDays||CFG.delayNewDays||14);
-        window._patientDelayDays=delayDays;
-      } else {
-        window._patientDelayDays=0;
-      }
-    } else {
-      window._patientDelayDays=0;
-    }
-  } else {
-    window._patientDelayDays=0;
-  }
-  /* Check if multiple patients use this phone number */
-  var _phonePats=findPatientsForPhone(document.getElementById('myPhone').value);
-  if(_phonePats.length>1){
-    showPatientPicker(_phonePats);
-    return;
-  }else if(_phonePats.length===1){
-    SEL_PATIENT.lastName=_phonePats[0].lastName;
-    SEL_PATIENT.firstName=_phonePats[0].firstName;
-  }else{
-    SEL_PATIENT.lastName='';SEL_PATIENT.firstName='';
-  }
+  /* v74 — pour qui est ce rendez-vous ? */
+  var people=_pfPeopleForPhone();
+  if(people.length){showPatientPicker(people);return;}
+  _pfAfterPerson();
+}
+/* v74 — la personne est choisie : règles du cabinet pour CETTE personne, puis choix du motif */
+function _pfAfterPerson(){
+  var s0=document.getElementById('s0');
+  if(s0)s0.innerHTML='<div class="loader"><div class="spin"></div><div>Chargement des disponibilités...</div></div>';
+  if(typeof _pfKnownMemo!=='undefined')_pfKnownMemo={t:0,v:false};
+  if(_pfBlockedFor(_pfSelName())){_pfBlockedStop();return;} /* v69 : personne bloquée */
+  var r=_pfEligibility();
+  if(!r.ok){showRefuseScreen(r.reason,CFG.proName||'votre kinésithérapeute',CFG.proPhone||'');return;}
+  window._patientDelayDays=r.delayDays||0;
   goStep(1);
 }
+/* refus des nouveaux patients / des nouvelles prises en charge, délai pour les nouveaux : pour la personne choisie */
+function _pfEligibility(){
+  var rules=CFG.bookingRules||{};
+  var needsCheck=!!(rules.refuseNewPatients||CFG.refuseNewPatients||rules.refuseNewTreatments||CFG.refuseNewTreatments||rules.delayNewPatients||CFG.delayNewPatients);
+  if(!needsCheck)return {ok:true,delayDays:0};
+  var nums=_pfMyNums(),kp=((CFG&&CFG.knownPatients)||[]).filter(Boolean);
+  var sel=(SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName))?_pfNm((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')):'';
+  var same=function(x){x=_pfNm(x);return !!(sel&&x&&(x===sel||x.indexOf(sel)>=0||sel.indexOf(x)>=0));};
+  var isKnown=_pfPatientIsKnown();
+  var mine=sel?kp.filter(function(k){return k.name&&same(k.name)&&(!k.ph||String(k.ph).length<8||nums.indexOf(k.ph)>=0)}):kp.filter(function(k){return k.ph&&nums.indexOf(k.ph)>=0});
+  var isInactive=sel?(mine.length>0&&mine.every(function(k){return k.inactive})):mine.some(function(k){return k.inactive});
+  if(rules.refuseNewPatients||CFG.refuseNewPatients){
+    if(!isKnown)return {ok:false,reason:'newPatient'};
+  }
+  if(rules.refuseNewTreatments||CFG.refuseNewTreatments){
+    if(!isKnown||isInactive){
+      var inactiveMonths=(rules.refuseInactiveMonths||CFG.refuseInactiveMonths||3);
+      var cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-inactiveMonths);
+      var cutoffKey=dk(cutoff);
+      var hasRecent=APTS.some(function(a){
+        if(!_pfSeance(a)||!a.patientPhone||a.date<cutoffKey)return false;
+        var n=_normPhoneMatch(a.patientPhone);
+        return n.length>=8&&nums.indexOf(n)>=0&&(!sel||same(_pfApName(a)));
+      });
+      if(!hasRecent)return {ok:false,reason:isKnown?'newTreatment':'newPatient'};
+    }
+  }
+  var delay=0;
+  if((rules.delayNewPatients||CFG.delayNewPatients)&&(!isKnown||isInactive))delay=(rules.delayNewDays||CFG.delayNewDays||14);
+  return {ok:true,delayDays:delay};
+}
 
-function showPatientPicker(patients){
-  var html='<div class="card" style="text-align:center"><div style="font-size:36px;margin-bottom:8px">👥</div>'+
-    '<h2 style="justify-content:center;margin-bottom:12px">Pour qui souhaitez-vous réserver ?</h2>'+
+function showPatientPicker(people){
+  window._pickerPatients=people;
+  var h='<div class="card" style="text-align:center"><div style="font-size:34px;margin-bottom:6px">👥</div>'+
+    '<h2 style="justify-content:center;margin-bottom:4px">Pour qui est ce rendez-vous ?</h2>'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.45">Le rendez-vous est pris au nom de la personne soignée.<br>Votre numéro reste le contact.</div>'+
     '<div style="display:flex;flex-direction:column;gap:8px">';
-  patients.forEach(function(p,i){
-    html+='<button class="btn bs bw" onclick="pickPatientAndContinue('+i+')" style="padding:14px;font-size:14px">'+esc(p.lastName)+' '+esc(p.firstName)+'</button>';
+  people.forEach(function(p,i){
+    h+='<button class="btn bs bw" onclick="pickPatientAndContinue('+i+')" style="padding:14px;font-size:14px">👤 '+esc(String(p.lastName||'').toUpperCase())+' '+esc(p.firstName||'')+'</button>';
   });
-  html+='<button class="btn bs bw" onclick="pickPatientOther()" style="padding:12px;font-size:13px;color:var(--text2)">✨ Autre (nouveau patient)</button>';
-  html+='</div></div>'+
+  h+='<button class="btn bs bw" id="pkOtherBtn" onclick="pickPatientOther()" style="padding:12px;font-size:13px;color:var(--text2)">➕ Une autre personne (enfant, conjoint, proche…)</button>'+
+    '</div>'+
+    '<div id="pkNew" style="display:none;text-align:left;margin-top:12px;padding-top:10px;border-top:1px solid var(--border2)">'+
+      '<div style="font-size:13px;font-weight:700;margin-bottom:8px">Nouvelle personne</div>'+
+      '<div class="fr"><div class="fg"><label>Nom</label><input id="pkLast" placeholder="Nom" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>'+
+      '<div class="fg"><label>Prénom</label><input id="pkFirst" placeholder="Prénom" autocomplete="off"></div></div>'+
+      '<button class="btn bp bw" onclick="pickNewPerson()">Continuer →</button>'+
+    '</div></div>'+
     '<button class="btn bs bw" onclick="backFromPicker()" style="margin-top:10px">← Retour</button>';
-  document.getElementById('s0').innerHTML=html;
+  document.getElementById('s0').innerHTML=h;
   showStep('s0');
-  window._pickerPatients=patients;
 }
 function backFromPicker(){
   /* Restore loading screen content and go back to welcome */
@@ -952,16 +980,37 @@ function backFromPicker(){
   showStep('sW');
 }
 function pickPatientAndContinue(idx){
+  var p=(window._pickerPatients||[])[idx];if(!p)return;
+  if(!p.id){
+    /* personne vue dans les RDV de ce numéro : mémorisée avec son propre identifiant */
+    p.id=_pfNewPid();
+    var L=_pfPeopleLoad();
+    if(!L.some(function(x){return _pfSameName(x.lastName,x.firstName,p.lastName,p.firstName)})){L.push({id:p.id,lastName:p.lastName,firstName:p.firstName});_pfPeopleSave(L);}
+  }
   window._pfForceNewPatient=false; /* v66 */
-  var p=window._pickerPatients[idx];
-  SEL_PATIENT.lastName=p.lastName;
-  SEL_PATIENT.firstName=p.firstName;
-  goStep(1);
+  SEL_PATIENT={id:p.id,lastName:p.lastName,firstName:p.firstName};
+  _pfAfterPerson();
 }
 function pickPatientOther(){
-  window._pfForceNewPatient=true; /* v66 : réservation pour un nouveau patient */
-  SEL_PATIENT.lastName='';SEL_PATIENT.firstName='';
-  goStep(1);
+  var f=document.getElementById('pkNew');if(!f)return;
+  f.style.display='block';
+  var b=document.getElementById('pkOtherBtn');if(b)b.style.display='none';
+  var i=document.getElementById('pkLast');if(i)i.focus();
+}
+function pickNewPerson(){
+  var ln=((document.getElementById('pkLast')||{}).value||'').trim().toUpperCase();
+  var fn=((document.getElementById('pkFirst')||{}).value||'').trim();
+  if(!ln||!fn){toast('Indiquez le nom et le prénom de la personne');return;}
+  fn=fn.toLowerCase().replace(/(?:^|\s|-)\S/g,function(c){return c.toUpperCase()});
+  var L=_pfPeopleLoad(),ex=null;
+  L.forEach(function(x){if(!ex&&_pfSameName(x.lastName,x.firstName,ln,fn))ex=x;});
+  var p=ex||{id:_pfNewPid(),lastName:ln,firstName:fn};
+  if(!ex){L.push(p);_pfPeopleSave(L);}
+  SEL_PATIENT={id:p.id,lastName:p.lastName,firstName:p.firstName};
+  window._pfForceNewPatient=false;
+  if(typeof _pfKnownMemo!=='undefined')_pfKnownMemo={t:0,v:false};
+  window._pfForceNewPatient=!_pfPatientIsKnown(); /* nouvelle personne = nouveau patient, sauf si le cabinet la connaît déjà */
+  _pfAfterPerson();
 }
 function showStep(id){
   /* Reset future agenda state when returning to welcome */
@@ -993,15 +1042,36 @@ function _pfBlockedFor(name){
   var nums=[],m=getMyNormPhone();
   if(m&&m.length>=8)nums.push(m);
   try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var x=_normPhoneMatch(ep);if(x.length>=8&&nums.indexOf(x)<0)nums.push(x);});}catch(e){}
-  var nm=String(name||'').trim().toLowerCase();
-  var same=function(x){return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
+  var nm=_pfNm(name); /* v74 : sans accents */
+  var same=function(x){x=_pfNm(x);return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
   for(var i=0;i<nums.length;i++){
     var ph=nums[i],B=kp.filter(function(k){return k.b&&k.ph&&k.ph===ph});
     if(!B.length)continue;
     if(!kp.some(function(k){return !k.b&&k.ph===ph}))return true;
     if(B.some(function(k){return same(k.name)}))return true;
   }
-  return nm.length>4&&kp.some(function(k){return k.b&&(!k.ph||String(k.ph).length<8)&&k.name===nm});
+  return nm.length>4&&kp.some(function(k){return k.b&&(!k.ph||String(k.ph).length<8)&&_pfNm(k.name)===nm});
+}
+/* v74 — jours où la personne choisie a déjà une séance (téléphone partagé : seulement les siennes) */
+function _pfMyDates(){
+  var out={},nums=_pfMyNums(),dev='';
+  try{dev=localStorage.getItem('pf_patientId')||'';}catch(e){}
+  var sel=(SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName))?_pfNm((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')):'';
+  var sid=(SEL_PATIENT&&SEL_PATIENT.id)||'';
+  (APTS||[]).forEach(function(a){
+    if(!_pfSeance(a)||!a.date)return;
+    var n=a.patientPhone?_normPhoneMatch(a.patientPhone):'';
+    var mine=n.length>=8&&nums.indexOf(n)>=0;
+    if(sel){
+      if(sid&&a.patientId===sid){out[a.date]=true;return;}
+      if(!mine)return;
+      var an=_pfNm(_pfApName(a));
+      if(an&&(an===sel||an.indexOf(sel)>=0||sel.indexOf(an)>=0))out[a.date]=true;
+      return;
+    }
+    if(mine||(dev&&a.patientId===dev))out[a.date]=true;
+  });
+  return out;
 }
 function _pfSelName(){var n=((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')).trim();return n||getMyNormName();}
 function _pfBlockedStop(){
@@ -1019,7 +1089,7 @@ function goStep(n){
     var _now=new Date();_now.setHours(0,0,0,0);
     var _rules=CFG.bookingRules||{};
     var _minH=_rules.minHoursBefore||2;
-    var _minDate=new Date(Date.now()+_minH*3600000);
+    var _minDate=new Date(Date.now()+_minH*3600000);_minDate.setHours(0,0,0,0); /* v74 : le jour minimum (le soir, le lendemain reste proposé) */
     var _maxDate=new Date();_maxDate.setDate(_maxDate.getDate()+(_rules.maxDaysAhead||60));
     var _vacP=CFG.vacationPeriods||[];
     if(CFG.vacationMode&&CFG.vacationMode.enabled&&!_vacP.length){
@@ -1063,6 +1133,20 @@ function goStep(n){
         if(myPh)document.getElementById('pPhone').value=myPh;
       }
     }catch(e){}
+    /* v74 — rendez-vous au nom de la personne choisie ; le téléphone reste le contact */
+    try{
+      var _fw=document.getElementById('pForWho'),_pl=document.getElementById('pPhoneLbl');
+      if(SEL_PATIENT&&SEL_PATIENT.lastName){
+        if(_fw){_fw.innerHTML='👤 Rendez-vous au nom de <b>'+esc(String(SEL_PATIENT.lastName).toUpperCase()+' '+(SEL_PATIENT.firstName||''))+'</b><br><span style="color:var(--text2)">Votre numéro de téléphone reste le contact.</span>';_fw.style.display='block';}
+        if(_pl)_pl.textContent='Téléphone de contact';
+      }else{
+        if(_fw){_fw.innerHTML='<span style="color:var(--text2)">Rendez-vous pour un proche (enfant, conjoint…) ? Indiquez <b>son</b> nom et son prénom : votre numéro reste le contact.</span>';_fw.style.display='block';}
+        if(_pl)_pl.textContent='Téléphone';
+      }
+      var _h4=document.querySelector('#s4 h2'),_o4={};try{_o4=JSON.parse(localStorage.getItem('pf_patient')||'{}')||{};}catch(e4){}
+      var _oth=!!(SEL_PATIENT&&SEL_PATIENT.lastName&&_o4.lastName&&!_pfSameName(_o4.lastName,_o4.firstName,SEL_PATIENT.lastName,SEL_PATIENT.firstName));
+      if(_h4)_h4.textContent=_oth?'👤 Informations du patient':'👤 Vos informations';
+    }catch(e){}
     showStep('s4');renderSummary();return;
   }
   showStep('s'+n);
@@ -1076,20 +1160,16 @@ function goMyBookings(){
   /* Normalize: 0612... or +33612... or 33612... should all match */
   if(normPh.startsWith('33')&&normPh.length>9)normPh=normPh.substring(2);
   if(normPh.startsWith('0'))normPh=normPh.substring(1);
-  /* Also get stored patientId for backup matching */
-  var storedPid='';
-  try{storedPid=localStorage.getItem('pf_patientId')||''}catch(e){}
-  /* Find appointments matching this phone OR this patientId */
+  /* v74 — RDV de ce téléphone (numéros secondaires compris) et des personnes de cet appareil ; séances seulement */
+  var _ids={};_pfPeopleLoad().forEach(function(p){_ids[p.id]=1;});
+  try{var _dv=localStorage.getItem('pf_patientId');if(_dv)_ids[_dv]=1;}catch(e){}
+  var _nums=_pfMyNums();if(normPh.length>=8&&_nums.indexOf(normPh)<0)_nums.push(normPh);
   var myApts=APTS.filter(function(a){
-    if(a.cancelled)return false;
-    /* Match by patientId */
-    if(storedPid&&a.patientId===storedPid)return true;
-    /* Match by phone */
+    if(!_pfSeance(a))return false;
+    if(a.patientId&&_ids[a.patientId])return true;
     if(!a.patientPhone)return false;
-    var aPh=(a.patientPhone||'').replace(/\D/g,'');
-    if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-    if(aPh.startsWith('0'))aPh=aPh.substring(1);
-    return aPh===normPh && aPh.length>=8;
+    var n=_normPhoneMatch(a.patientPhone);
+    return n.length>=8&&_nums.indexOf(n)>=0;
   });
   /* Also check by reading from firebase full data - look for patientId match */
   var todayK=dk(new Date());
@@ -1099,11 +1179,14 @@ function goMyBookings(){
   if(!futureApts.length){
     box.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">Aucun rendez-vous trouvé pour ce numéro.<br><br><div style="font-size:12px">⚠️ Vérifiez que vous utilisez <b>le même numéro de téléphone</b> que lors de votre réservation.<br><br>Si vous avez réservé récemment, le rendez-vous peut mettre quelques secondes à apparaître. Essayez de fermer et rouvrir cette page.</div></div>';
   } else {
+    var _nmSet={};futureApts.forEach(function(a){var n=_pfNm(_pfApName(a));if(n)_nmSet[n]=1;});
+    var _multi=Object.keys(_nmSet).length>1; /* v74 : plusieurs personnes → nom sur chaque RDV */
     box.innerHTML=futureApts.map(function(a){
       var dt=new Date(a.date+'T00:00:00');
       var motif=_pfMotifById(a.motifId,a.date); /* v73 */
       var isToday=a.date===todayK;
       return '<div style="padding:10px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px">'+
+        (_multi&&_pfApName(a)?'<div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:2px">👤 '+esc(_pfApName(a))+'</div>':'')+
         '<div style="font-weight:600;font-size:13px">'+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+(isToday?' (aujourd\'hui)':'')+' à <b>'+a.time+'</b></div>'+
         '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">'+(motif?motif.label:'Séance')+'</div>'+
         '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
@@ -1120,7 +1203,8 @@ function goMyBookings(){
 function addToCalFromList(apId){
   var ap=APTS.find(function(a){return a.id===apId});
   if(!ap){toast('RDV introuvable');return;}
-  openCalSheet(ap.date,ap.time,_pfMotifById(ap.motifId,ap.date)||{label:'Séance',duration:ap.duration||30});
+  var who='';try{if(_pfPeopleLoad().length>1)who=_pfSplitName(_pfApName(ap)).firstName||'';}catch(e){}
+  openCalSheet(ap.date,ap.time,_pfMotifById(ap.motifId,ap.date)||{label:'Séance',duration:ap.duration||30},who);
 }
 
 /* v62 — délai minimum avant la séance pour pouvoir DÉCALER */
@@ -1145,7 +1229,7 @@ function _apSlotMax(ap){
 /* Dérogation 1 : le décalage vide entièrement un créneau multi-places */
 function _reschedEmptiesSlot(ap){
   if(_apSlotMax(ap)<=1)return false; /* pas un créneau multi-places */
-  var dayApts=APTS.filter(function(a){return a&&!a.cancelled&&a.date===ap.date});
+  var dayApts=APTS.filter(function(a){return _pfOcc(a)&&a.date===ap.date}); /* v74 */
   var others=dayApts.filter(function(a){
     return a.motifId===ap.motifId&&a.time===ap.time&&a.id!==ap.id;
   }).length;
@@ -1165,7 +1249,7 @@ function _hasOpenExtraSlotFor(motifId){
     if(k<todayK)continue;
     var list=all[k]||[];
     if(!list.some(function(x){return x&&x.motifId===motifId}))continue;
-    var dayApts=APTS.filter(function(a){return a&&!a.cancelled&&a.date===k});
+    var dayApts=APTS.filter(function(a){return _pfOcc(a)&&a.date===k}); /* v74 */
     for(var j=0;j<list.length;j++){
       var x=list[j];
       if(!x||x.motifId!==motifId)continue;
@@ -1264,6 +1348,7 @@ function rescheduleFromList(apId){
   window._rescheduleOldTime=ap.time;                    /* v59 */
   window._rescheduleOldMotif=motif.label||'Séance';     /* v59 */
   window._rescheduleMaxDate=null; /* v73 : le motif est recalculé pour chaque date (agenda actuel ou futur) */
+  var _pp=_pfPersonOfAp(ap);if(_pp)SEL_PATIENT=_pp; /* v74 : le RDV reste au nom de la même personne */
   /* Set motif and go to calendar step */
   SEL.motif=motif;SEL.date=null;SEL.time=null;
   window._sameDayConfirmed=false;
@@ -1383,11 +1468,17 @@ function getMyNormPhone(){
    Choisir « ✨ Autre (nouveau patient) » dans le sélecteur force « nouveau patient ». */
 function _pfPatientIsKnown(){
   if(window._pfForceNewPatient)return false;
-  var nums=[],m=getMyNormPhone();
-  if(m&&m.length>=8)nums.push(m);
-  try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var n=_normPhoneMatch(ep);if(n.length>=8&&nums.indexOf(n)<0)nums.push(n);});}catch(e){}
+  var nums=_pfMyNums();
   if(!nums.length)return false;
   var kp=(CFG&&CFG.knownPatients)||[];
+  /* v74 — une personne choisie (« Pour qui ? ») : connue si une fiche du cabinet porte son nom
+     (avec ce numéro, ou sans numéro) ou si elle a déjà eu un RDV avec ce numéro */
+  var sel=(typeof SEL_PATIENT!=='undefined'&&SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName))?_pfNm((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')):'';
+  if(sel){
+    var same=function(x){x=_pfNm(x);return !!(x&&(x===sel||x.indexOf(sel)>=0||sel.indexOf(x)>=0));};
+    if(kp.some(function(k){return k&&k.name&&same(k.name)&&(!k.ph||String(k.ph).length<8||nums.indexOf(k.ph)>=0)}))return true;
+    return (APTS||[]).some(function(a){if(!_pfSeance(a)||!a.patientPhone)return false;var n=_normPhoneMatch(a.patientPhone);return n.length>=8&&nums.indexOf(n)>=0&&same(a.patientName||((a.patientLastName||'')+' '+(a.patientFirstName||'')));});
+  }
   if(kp.some(function(k){return k&&k.ph&&nums.indexOf(k.ph)>=0}))return true;
   return (APTS||[]).some(function(a){if(!a||a.cancelled||!a.patientPhone)return false;var n=_normPhoneMatch(a.patientPhone);return n.length>=8&&nums.indexOf(n)>=0;});
 }
@@ -1456,11 +1547,17 @@ function _pfMyLabel(){
   if(m&&m.length>=8)nums.push(m);
   try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var x=_normPhoneMatch(ep);if(x.length>=8&&nums.indexOf(x)<0)nums.push(x);});}catch(e){}
   var nm='';try{nm=(typeof _pfSelName==='function'?_pfSelName():getMyNormName())||'';}catch(e){nm=getMyNormName()||'';}
-  nm=String(nm).trim().toLowerCase();
-  var same=function(x){return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
+  nm=_pfNm(nm); /* v74 : sans accents */
+  var same=function(x){x=_pfNm(x);return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
   var cand=kp.filter(function(k){return k.ph&&nums.indexOf(k.ph)>=0});
-  if(cand.length>1){var byName=cand.filter(function(k){return same(k.name)});if(byName.length)cand=byName;}
-  if(!cand.length&&nm.length>4)cand=kp.filter(function(k){return k.name===nm});
+  var _sel=(typeof SEL_PATIENT!=='undefined'&&SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName));
+  if(_sel){
+    /* v74 — personne choisie (« Pour qui ? ») : SA fiche, jamais celle d'un proche qui partage le téléphone */
+    var _bn=cand.filter(function(k){return same(k.name)});
+    if(!_bn.length)_bn=kp.filter(function(k){return (!k.ph||String(k.ph).length<8)&&same(k.name)});
+    cand=_bn;
+  }else if(cand.length>1){var byName=cand.filter(function(k){return same(k.name)});if(byName.length)cand=byName;}
+  if(!cand.length&&nm.length>4)cand=kp.filter(function(k){return _pfNm(k.name)===nm});
   if(!cand.length)return 'standard';
   var l=cand[0].l;
   return l==='s'?'simple':(l==='c'?'complexe':'standard');
@@ -1485,6 +1582,19 @@ function _pfT(t){
   var m=/^(\d{1,2})(?:[:h.](\d{1,2})?)?(?::\d{2})?$/.exec(s);if(!m)return String(t||'');
   var h=parseInt(m[1],10),mi=m[2]?parseInt(m[2],10):0;if(!(h>=0&&h<=23&&mi>=0&&mi<=59))return String(t||'');
   return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi;
+}
+/* v74 — ce qui occupe une place dans l'agenda : pas les bilans (rattachés à une séance) ni les lignes « groupe » */
+function _pfOcc(a){return !!(a&&!a.cancelled&&a.type!=='bilan'&&a.type!=='group');}
+/* v74 — les RDV du patient : seulement les séances */
+function _pfSeance(a){return !!(a&&!a.cancelled&&a.type!=='bilan'&&a.type!=='group'&&a.type!=='absence');}
+/* v74 — nom comparable (minuscules, sans accents ni tirets) */
+function _pfNm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[-_'’.]/g,' ').replace(/\s+/g,' ').trim();}
+/* v74 — numéros de cet appareil (principal + secondaires) */
+function _pfMyNums(){
+  var nums=[],m=getMyNormPhone();
+  if(m&&m.length>=8)nums.push(m);
+  try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var n=_normPhoneMatch(ep);if(n.length>=8&&nums.indexOf(n)<0)nums.push(n);});}catch(e){}
+  return nums;
 }
 function _pfNormMotif(m){
   if(!m||typeof m!=='object')return;
@@ -1515,11 +1625,11 @@ function slotVisibleToMe(dateKey,time,motifId){
   var r=rules[dateKey+'|'+time+'|'+motifId];
   if(!r)return _pfLabelAllows(motifId,time,dateKey); /* v73 : sans règle pour ce patient, le label de traitement décide */
   var myPh=getMyNormPhone();
-  var myName=getMyNormName();
+  var myName=_pfNm((typeof _pfSelName==='function'?_pfSelName():getMyNormName())||''); /* v74 : la personne choisie, sans accents */
   var inList=false;
   if(myPh&&myPh.length>=8&&r.phones&&r.phones.indexOf(myPh)>=0)inList=true;
   if(!inList&&myName&&myName.length>2&&r.names&&r.names.length){
-    inList=r.names.some(function(n){return n&&(n===myName||myName.indexOf(n)>=0||n.indexOf(myName)>=0)});
+    inList=r.names.some(function(n){n=_pfNm(n);return n&&(n===myName||myName.indexOf(n)>=0||n.indexOf(myName)>=0)});
   }
   if(r.mode==='except')return !inList&&_pfLabelAllows(motifId,time,dateKey); /* hidden for listed patients */
   return inList; /* 'only' => visible only to listed patients (choisis nommément : le label ne les écarte pas) */
@@ -1552,8 +1662,11 @@ function getMyAlerts(){
     if(!mine&&extra.length&&g.phones){
       mine=extra.some(function(e2){return g.phones.indexOf(e2)>=0});
     }
-    if(!mine&&myName&&myName.length>2&&g.names&&g.names.length){
-      mine=g.names.some(function(n){return n&&(n===myName||myName.indexOf(n)>=0||n.indexOf(myName)>=0)});
+    if(!mine&&g.names&&g.names.length){
+      /* v74 — toutes les personnes de cet appareil (enfant sans téléphone sur sa fiche…), sans accents */
+      var _mn=[_pfNm(myName)];try{_pfPeopleLoad().forEach(function(pp){_mn.push(_pfNm((pp.lastName||'')+' '+(pp.firstName||'')));});}catch(e3){}
+      _mn=_mn.filter(function(x){return x&&x.length>2});
+      mine=g.names.some(function(n){n=_pfNm(n);return n&&_mn.some(function(m){return n===m||m.indexOf(n)>=0||n.indexOf(m)>=0})});
     }
     if(!mine)return;
     (g.items||[]).forEach(function(it){
@@ -1672,7 +1785,7 @@ function checkDateHasSlots(dateKey){
   var maxSlots=motif.slots||1;
   var slotEx=_slotExFor(dateKey,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice(); /* v71 — pas d'heure typique = aucun créneau régulier (seules les ouvertures exceptionnelles de ce motif) */
-  var dayApts=APTS.filter(function(a){return a.date===dateKey&&!a.cancelled&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)}); /* v73 : le RDV déplacé ne bloque pas sa nouvelle place */
+  var dayApts=APTS.filter(function(a){return a.date===dateKey&&_pfOcc(a)&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)}); /* v73/v74 : le RDV déplacé ne bloque pas sa nouvelle place ; bilans et groupes ne comptent pas */
   /* v73 — mêmes délais que renderSlots : un jour en surbrillance a au moins un horaire réservable */
   var _r73=CFG.bookingRules||{},_now73=new Date(),_minT73=new Date(_now73.getTime()+(_r73.minHoursBefore||2)*3600000),_mD73=new Date(_minT73.getTime());
   if(window._patientDelayDays>0){var _dd73=new Date(_now73);_dd73.setDate(_dd73.getDate()+window._patientDelayDays);_dd73.setHours(0,0,0,0);if(_dd73>_mD73)_mD73=_dd73;}
@@ -1696,35 +1809,8 @@ function checkDateHasSlots(dateKey){
     var thisMax=slotEx[t]||maxSlots;
     var bookingsAtSlot=dayApts.filter(function(a){return a.motifId===motif.id&&a.time===t}).length;
     bookingsAtSlot+=extraTakenForSlot(dateKey,motif.id,t,dayApts); /* v63 */
-    var generalOverlap=false;
-    if(!motif.allowSimul){
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id)return false;
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        var be=tm+(motif.duration||30);
-        return tm<ae&&be>as;
-      });
-    }else{
-      /* v73 — motif simultané : seul le motif partenaire peut se superposer (comme renderSlots) */
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id||a.motifId===motif.simulWith)return false;
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        return tm<ae&&(tm+(motif.duration||30))>as;
-      });
-    }
+    var generalOverlap=_forcedAbsOverlap(dateKey,t,motif,dayApts); /* v74 : seules les absences bloquent */
     var _isX=isExtraSlot(dateKey,t,motif.id);
-    if(_isX){
-      var _sIds={};
-      _extraLinksAt(dateKey).forEach(function(x){
-        if(x&&x.time===t&&x.motifId===motif.id)_sIds[x.srcMotifId]=true;
-      });
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id)return false;
-        if(_sIds[a.motifId])return false;
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        return tm<ae && (tm+(motif.duration||30))>as;
-      });
-    }
     var _fx73=!_isX&&isForcedExo(dateKey,t,motif.id);
     if(_fx73)generalOverlap=_forcedAbsOverlap(dateKey,t,motif,dayApts); /* v70 */
     /* v73 — horaire trop proche (ou jour hors délais sans ouverture forcée) : pas réservable */
@@ -1872,7 +1958,7 @@ function _exoAt(dateKey){
 function isExoSlot(dateKey,time,motifId){return _exoAt(dateKey).some(function(r){return r.time===time&&r.motifId===motifId});}
 function _exoTimesFor(dateKey,motifId){var out=[];_exoAt(dateKey).forEach(function(r){if(r.motifId===motifId&&out.indexOf(r.time)<0)out.push(r.time)});return out;}
 /* v70 — ouverture exceptionnelle « forcée » (réglage par défaut du kiné) : proposée malgré les délais minimum
-   et maximum de réservation et malgré l'interdiction de simultanéité avec un autre motif.
+   et maximum de réservation (v74 : les autres motifs ne bloquent plus aucun horaire ; seule une absence bloque).
    Une absence du kiné, les places et les masquages de créneaux restent respectés. */
 function isForcedExo(dateKey,time,motifId){return _exoAt(dateKey).some(function(r){return r.time===time&&r.motifId===motifId&&r.force!==false});}
 function _forcedAbsOverlap(dateKey,time,motif,dayApts){
@@ -1885,7 +1971,7 @@ function forcedExoOpenOn(dateKey,motif,nowMs){
   var list=_exoAt(dateKey).filter(function(r){return r.motifId===motif.id&&r.force!==false});
   if(!list.length)return false;
   var now=nowMs||Date.now();
-  var dayApts=APTS.filter(function(a){return a&&a.date===dateKey&&!a.cancelled&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)});
+  var dayApts=APTS.filter(function(a){return a&&a.date===dateKey&&_pfOcc(a)&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)}); /* v74 */
   var slotEx=_slotExFor(dateKey,motif);
   return list.some(function(r){
     var tm=t2m(r.time),d=new Date(dateKey+'T00:00:00');d.setHours(Math.floor(tm/60),tm%60,0,0);
@@ -1924,13 +2010,7 @@ function _slotIsFull(motif,t,dayApts,slotEx,maxSlots){
   var thisMax=slotEx[t]||maxSlots;
   var n=dayApts.filter(function(a){return a.motifId===motif.id&&a.time===t}).length;
   if(n>=thisMax)return true;
-  var overlap=dayApts.some(function(a){
-    if(a.motifId===motif.id)return false;
-    if(motif.allowSimul&&a.motifId===motif.simulWith)return false;
-    var as=t2m(a.time),ae=as+(a.duration||30);
-    return tm<ae && (tm+(motif.duration||30))>as;
-  });
-  return overlap;
+  return _forcedAbsOverlap('',t,motif,dayApts); /* v74 : seules les absences bloquent */
 }
 /* La demi-journée est-elle saturée pour ce motif, EN DEHORS du break ? */
 var _brkSatCache={};
@@ -2021,7 +2101,7 @@ function renderCal(){
     var fk=dk(fdt);
     var fOnVac=false;vacPeriods.forEach(function(v){if(v.from&&v.to&&fk>=v.from&&fk<=v.to)fOnVac=true});
     var _fm73=_pfMotifAt(SEL.motif,fk); /* v73 */
-    if(_pfDaysAt(fk).indexOf(fdt.getDay())>=0&&_fm73&&((fdt>=minDate&&fdt<=maxDate)||(fdt>=today&&forcedExoOpenOn(fk,_fm73)))&&!fOnVac){firstAvail=fd;break} /* v70 */
+    if(_pfDaysAt(fk).indexOf(fdt.getDay())>=0&&_fm73&&((fdt>=new Date(minDate.getFullYear(),minDate.getMonth(),minDate.getDate())&&fdt<=maxDate)||(fdt>=today&&forcedExoOpenOn(fk,_fm73)))&&!fOnVac){firstAvail=fd;break} /* v70 */
   }
   /* Use remembered firstAvailDay if we're on the auto-navigated month */
   if(window._firstAvailDay&&window._firstAvailMonth===m&&window._firstAvailYear===y){
@@ -2101,22 +2181,7 @@ function renderCal(){
   document.getElementById('calGrid').innerHTML=h+vacMsg;
   /* Apply glow to available dates — skip days with no slots */
   setTimeout(function(){
-    var ph2=(document.getElementById('myPhone')?document.getElementById('myPhone').value:'').replace(/[\s\-\.]/g,'').replace(/\D/g,'');
-    if(ph2.startsWith('33')&&ph2.length>9)ph2=ph2.substring(2);
-    if(ph2.startsWith('0'))ph2=ph2.substring(1);
-    var myDates2={};
-    if(ph2.length>=8){
-      APTS.forEach(function(a){
-        if(a.cancelled)return;
-        var aPh=(a.patientPhone||'').replace(/\D/g,'');
-        if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-        if(aPh.startsWith('0'))aPh=aPh.substring(1);
-        if(aPh===ph2)myDates2[a.date]=true;
-      });
-      /* Also check by patientId */
-      var sPid='';try{sPid=localStorage.getItem('pf_patientId')||''}catch(e){}
-      if(sPid){APTS.forEach(function(a){if(!a.cancelled&&a.patientId===sPid)myDates2[a.date]=true})}
-    }
+    var myDates2=_pfMyDates(); /* v74 : la personne choisie */
     document.querySelectorAll('.cal-day:not(.dis)').forEach(function(d2){
       var dateKey=d2.dataset.k;
       /* Check if this day has an all-day absence or holiday covering it */
@@ -2195,12 +2260,16 @@ function getPatientUsualMinute(patientPhone){
   if(normPh.startsWith('33')&&normPh.length>9)normPh=normPh.substring(2);
   if(normPh.startsWith('0'))normPh=normPh.substring(1);
   if(normPh.length<8)return null;
+  var _sel=(typeof SEL_PATIENT!=='undefined'&&SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName))?_pfNm((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')):'';
   var past=APTS.filter(function(a){
-    if(a.cancelled||!a.patientPhone||!a.time)return false;
+    if(!_pfSeance(a)||!a.patientPhone||!a.time)return false; /* v74 */
     var aPh=a.patientPhone.replace(/\D/g,'');
     if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
     if(aPh.startsWith('0'))aPh=aPh.substring(1);
-    return aPh===normPh&&aPh.length>=8;
+    if(aPh!==normPh||aPh.length<8)return false;
+    if(!_sel)return true;
+    var n=_pfNm(_pfApName(a)); /* v74 : téléphone partagé → les séances de cette personne seulement */
+    return !!(n&&(n===_sel||n.indexOf(_sel)>=0||_sel.indexOf(n)>=0));
   }).slice(-10);
   if(past.length<2)return null;
   var mins=past.map(function(a){return t2m(a.time)}).sort(function(a,b){return a-b});
@@ -2413,7 +2482,7 @@ function renderSlots(){
   /* v59: while rescheduling, the appointment being moved must not make its
      own replacement slot look taken. */
   var dayApts=APTS.filter(function(a){
-    if(a.date!==SEL.date||a.cancelled)return false;
+    if(a.date!==SEL.date||!_pfOcc(a))return false; /* v74 : bilans et groupes ne prennent pas de place */
     if(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)return false;
     return true;
   });
@@ -2464,25 +2533,9 @@ function renderSlots(){
     }).length;
     /* v63 — une place supplémentaire prise occupe 1 place de ce créneau */
     bookingsAtSlot+=extraTakenForSlot(SEL.date,motif.id,t,dayApts);
-    /* Check general overlap for other motifs (unless simultaneous allowed) */
-    var generalOverlap=false;
-    if(!motif.allowSimul){
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id)return false;
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        var be=tm+(motif.duration||30);
-        return tm<ae && be>as;
-      });
-    } else {
-      /* Only check overlap with motifs that are NOT the simulWith partner */
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id)return false;
-        if(a.motifId===motif.simulWith)return false; /* allowed simultaneous */
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        var be=tm+(motif.duration||30);
-        return tm<ae && be>as;
-      });
-    }
+    /* v74 — simultanéité toujours permise : les RDV des autres motifs ne bloquent pas un horaire type ;
+       seule une absence du kiné qui chevauche le créneau le ferme */
+    var generalOverlap=_forcedAbsOverlap(SEL.date,t,motif,dayApts);
     /* Hidden/restricted slot for this patient => render exactly like a full slot */
     var hiddenForMe=!slotVisibleToMe(SEL.date,t,motif.id);
     /* v60 — Break : même traitement (affiché comme complet, jamais cliquable) */
@@ -2490,21 +2543,7 @@ function renderSlots(){
     /* v63 — la place supplémentaire se superpose volontairement au créneau
        multi-places : le contrôle de chevauchement ne s'y applique pas.
        Un Break, lui, reste prioritaire (c'est une fermeture explicite). */
-    var isExtra=isExtraSlot(SEL.date,t,motif.id);
-    if(isExtra){
-      /* v65 — la superposition n'est voulue qu'avec le créneau multi-places
-         d'origine ; tout autre chevauchement reste un vrai conflit. */
-      var _srcIds={};
-      _extraLinksAt(SEL.date).forEach(function(x){
-        if(x&&x.time===t&&x.motifId===motif.id)_srcIds[x.srcMotifId]=true;
-      });
-      generalOverlap=dayApts.some(function(a){
-        if(a.motifId===motif.id)return false;
-        if(_srcIds[a.motifId])return false; /* le groupe : superposition voulue */
-        var as=t2m(a.time),ae=as+(a.duration||30);
-        return tm<ae && (tm+(motif.duration||30))>as;
-      });
-    }
+    var isExtra=isExtraSlot(SEL.date,t,motif.id); /* v74 : même règle (seules les absences bloquent) */
     /* v64 — report hors délai autorisé uniquement vers une place supplémentaire */
     var restrictedOut=(window._reschedExtraOnly&&window._rescheduleOldApId&&!isExtra);
     var _forced=!isExtra&&isForcedExo(SEL.date,t,motif.id); /* v70 */
@@ -2549,6 +2588,7 @@ function doBook(){
 
   if(!ln||!fn){toast('Nom et prénom requis');return;}
   if(!ph||ph.length<8){toast('Téléphone requis');return;}
+  if(_pfBlockedFor(ln+' '+fn)){_pfBlockedStop();return;} /* v74 : la personne au nom de qui le RDV est pris */
 
   if(!SEL.motif||!SEL.date||!SEL.time){toast('Sélection incomplète');return;}
   var _mBook=_pfMotifAt(SEL.motif,SEL.date); /* v73 : agenda en vigueur le jour choisi */
@@ -2560,18 +2600,21 @@ function doBook(){
   var normBookPh=ph.replace(/\D/g,'');
   if(normBookPh.startsWith('33')&&normBookPh.length>9)normBookPh=normBookPh.substring(2);
   if(normBookPh.startsWith('0'))normBookPh=normBookPh.substring(1);
-  var bookingName=(ln+' '+fn).toLowerCase();
+  var bookingName=_pfNm(ln+' '+fn); /* v74 */
+  var _o0={};try{_o0=JSON.parse(localStorage.getItem('pf_patient')||'{}')||{};}catch(e){}
+  var _isOther=!!(_o0.lastName&&!_pfSameName(_o0.lastName,_o0.firstName,ln,fn));
   var sameDayApts=APTS.filter(function(a){
-    if(a.date!==SEL.date||a.cancelled)return false;
+    if(a.date!==SEL.date||!_pfSeance(a))return false; /* v74 */
     if(!a.patientPhone)return false;
     var aPh=(a.patientPhone||'').replace(/\D/g,'');
     if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
     if(aPh.startsWith('0'))aPh=aPh.substring(1);
     if(aPh.length<8||normBookPh.length<8||aPh!==normBookPh)return false;
     /* For multi-patient phones: only warn if same name */
-    var aName=((a.patientLastName||'')+(a.patientFirstName?' '+a.patientFirstName:'')).toLowerCase().trim();
-    if(!aName)aName=(a.patientName||'').toLowerCase().trim();
-    return aName===bookingName||!aName; /* match if same name or name unknown */
+    var aName=_pfNm(_pfApName(a)); /* v74 */
+    if(!aName)return !_isOther; /* nom inconnu : on ne prévient que pour soi */
+    var sp=_pfSplitName(_pfApName(a));
+    return aName===bookingName||_pfSameName(sp.lastName,sp.firstName,ln,fn);
   });
   /* v59: when the patient is MOVING an appointment, the old one obviously
      still exists — asking "you already have a booking that day" is noise.
@@ -2583,7 +2626,7 @@ function doBook(){
   if(!_isResched && sameDayApts.length>0 && !window._sameDayConfirmed){
     var dt2=new Date(SEL.date+'T00:00:00');
     var dateFr2=dt2.getDate()+' '+MN[dt2.getMonth()]+' '+dt2.getFullYear();
-    if(!confirm('Vous avez déjà un rendez-vous le '+dateFr2+'.\nSouhaitez-vous quand même réserver ce créneau supplémentaire ?'))return;
+    if(!confirm((_isOther?fn+' a':'Vous avez')+' déjà un rendez-vous le '+dateFr2+'.\nSouhaitez-vous quand même réserver ce créneau supplémentaire ?'))return; /* v74 */
     window._sameDayConfirmed=true;
   }
 
@@ -2595,7 +2638,7 @@ function doBook(){
   var thisMaxSlots=_slotEx[SEL.time]||maxSlots;
   /* v59: the appointment being moved must not block its own new slot */
   var dayApts=APTS.filter(function(a){
-    if(a.date!==SEL.date||a.cancelled)return false;
+    if(a.date!==SEL.date||!_pfOcc(a))return false; /* v74 */
     if(_isResched&&a.id===window._rescheduleOldApId)return false;
     return true;
   });
@@ -2603,22 +2646,8 @@ function doBook(){
   var sameSlotCount=dayApts.filter(function(a){
     return a.motifId===SEL.motif.id && a.time===SEL.time;
   }).length;
-  /* Check general overlap (other motifs, unless simul allowed) */
-  var generalOverlap=false;
-  if(!SEL.motif.allowSimul){
-    generalOverlap=dayApts.some(function(a){
-      if(a.motifId===SEL.motif.id)return false;
-      var as=t2m(a.time),ae=as+(a.duration||30);
-      return tm<ae && (tm+dur)>as;
-    });
-  } else {
-    generalOverlap=dayApts.some(function(a){
-      if(a.motifId===SEL.motif.id)return false;
-      if(a.motifId===SEL.motif.simulWith)return false;
-      var as=t2m(a.time),ae=as+(a.duration||30);
-      return tm<ae && (tm+dur)>as;
-    });
-  }
+  /* v74 — simultanéité toujours permise : seule une absence bloque */
+  var generalOverlap=_forcedAbsOverlap(SEL.date,SEL.time,SEL.motif,dayApts);
   if(!isExtraSlot(SEL.date,SEL.time,SEL.motif.id)&&isForcedExo(SEL.date,SEL.time,SEL.motif.id))generalOverlap=_forcedAbsOverlap(SEL.date,SEL.time,SEL.motif,dayApts); /* v70 */
   var conflict=sameSlotCount>=thisMaxSlots || generalOverlap;
   if(conflict){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
@@ -2641,19 +2670,19 @@ function doBook(){
   var btn=document.getElementById('btnBook');
   btn.disabled=true;btn.textContent='⏳ Envoi...';
 
-  /* Save patient info for next time */
-  var extraPhones=getExtraPhones();
+  /* v74 — téléphone de contact mémorisé ; le nom de l'appareil n'est fixé qu'à la 1re réservation :
+     réserver pour un proche ne remplace plus votre identité */
+  var extraPhones=getExtraPhones(),_owner={lastName:'',firstName:''};
   try{
-    localStorage.setItem('pf_patient',JSON.stringify({lastName:ln,firstName:fn,phone:ph,extraPhones:extraPhones}));
+    var _sv=JSON.parse(localStorage.getItem('pf_patient')||'{}');
+    var _own=!!(_sv.lastName||_sv.firstName);
+    _owner={lastName:_own?(_sv.lastName||''):ln,firstName:_own?(_sv.firstName||''):fn};
+    localStorage.setItem('pf_patient',JSON.stringify({lastName:_owner.lastName,firstName:_owner.firstName,phone:ph,extraPhones:extraPhones}));
   }catch(e){}
 
-  /* Use persistent patientId (stable across bookings for same device) */
-  var pid;
-  try{pid=localStorage.getItem('pf_patientId')}catch(e){}
-  if(!pid){
-    pid='pat_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    try{localStorage.setItem('pf_patientId',pid)}catch(e){}
-  }
+  /* v74 — un identifiant PAR PERSONNE soignée : le kiné garde une fiche (et des factures) par personne */
+  var pid=_pfPidFor(ln,fn);
+  var _forOther=!!(_owner.lastName&&!_pfSameName(_owner.lastName,_owner.firstName,ln,fn));
   var booking={
     id:'b_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
     motifId:SEL.motif.id,
@@ -2667,8 +2696,10 @@ function doBook(){
     patientExtraPhones:extraPhones,
     patientNote:note,
     bookedAt:new Date().toISOString(),
-    source:'patient'
+    source:'patient',
+    app:74 /* v74 : identifiant propre à chaque personne soignée */
   };
+  if(_forOther){booking.contactLastName=_owner.lastName;booking.contactFirstName=_owner.firstName;} /* v74 : réservé par le titulaire du téléphone */
 
   /* v73 — la réservation n'est transmise au kiné (patientBookings + notification) qu'une fois
      la place obtenue dans la transaction ci-dessous : plus de RDV en double si la place vient d'être prise */
@@ -2693,7 +2724,7 @@ function doBook(){
     var arr=current;
     if(!Array.isArray(arr))arr=arr?Object.values(arr):[];
     /* v73 — même créneau, même motif : places encore libres au moment d'écrire ? */
-    var _n=arr.filter(function(x){return x&&!x.cancelled&&x.id!==aptEntry.id&&x.date===aptEntry.date&&_pfT(x.time)===aptEntry.time&&x.motifId===aptEntry.motifId&&!(_isResched&&x.id===window._rescheduleOldApId)}).length;
+    var _n=arr.filter(function(x){return _pfOcc(x)&&x.type!=='absence'&&x.id!==aptEntry.id&&x.date===aptEntry.date&&_pfT(x.time)===aptEntry.time&&x.motifId===aptEntry.motifId&&!(_isResched&&x.id===window._rescheduleOldApId)}).length;
     if(_n>=_txMax&&!arr.some(function(x){return x&&x.id===aptEntry.id})){_txFull=true;return;}
     _txFull=false;
     if(!arr.some(function(x){return x&&x.id===aptEntry.id}))arr.push(aptEntry);
@@ -2704,7 +2735,7 @@ function doBook(){
       toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;
     }
     REF.child('patientBookings').push(booking);
-    REF.child('notifyPro').push({type:'booking',patientName:ln+' '+fn,date:booking.date,time:booking.time,motifId:booking.motifId,createdAt:new Date().toISOString()});
+    REF.child('notifyPro').push({type:'booking',patientName:ln+' '+fn,by:_forOther?((_owner.lastName||'')+' '+(_owner.firstName||'')).trim():'',date:booking.date,time:booking.time,motifId:booking.motifId,createdAt:new Date().toISOString()}); /* v74 */
     btn.disabled=false;btn.textContent='✅ Confirmer la réservation';
     lastBookingId=booking.id;
     /* Show confirmation */
@@ -2766,7 +2797,7 @@ function doBook(){
     requestPatientNotif(booking.patientId);
     /* SMS self-reminder */
     if(document.getElementById('smsReminder')&&document.getElementById('smsReminder').checked && ph){
-      var msg='📅 Rappel RDV Kiné :\n'+SEL.motif.label+'\n'+dateLabel+' à '+SEL.time+'\nAvec '+proName+'\n\n(Pensez à prévenir en cas d\'empêchement)';
+      var msg='📅 Rappel RDV Kiné'+(_forOther?' ('+fn+')':'')+' :\n'+SEL.motif.label+'\n'+dateLabel+' à '+SEL.time+'\nAvec '+proName+'\n\n(Pensez à prévenir en cas d\'empêchement)';
       var uri='sms:'+encodeURIComponent(ph)+'?body='+encodeURIComponent(msg);
       setTimeout(function(){window.location.href=uri},600);
     }
@@ -3134,7 +3165,8 @@ function doCloseApp(){
 function joinWaitlist(){
   if(_pfBlockedFor(_pfSelName())){toast('Rendez-vous indisponibles');return;} /* v69 */
   var ph=(document.getElementById('myPhone').value||'').trim();
-  var name=prompt('Votre nom et prénom :','');
+  var _def=(SEL_PATIENT&&(SEL_PATIENT.lastName||SEL_PATIENT.firstName))?((SEL_PATIENT.lastName||'')+' '+(SEL_PATIENT.firstName||'')).trim():''; /* v74 */
+  var name=prompt(_def?'Nom et prénom de la personne :':'Votre nom et prénom :',_def);
   if(!name){toast('Inscription annulée');return;}
   var motifLabel='';
   if(SEL.motif)motifLabel=SEL.motif.label;
@@ -3188,19 +3220,7 @@ function applyGlowsForScreen(screenId){
   else if(screenId==='s2'){
     /* Glow available calendar dates — but NOT dates where this patient already has a booking */
     setTimeout(function(){
-      var ph=(document.getElementById('myPhone').value||'').replace(/[\s\-\.]/g,'').replace(/\D/g,'');
-      if(ph.startsWith('33')&&ph.length>9)ph=ph.substring(2);
-      if(ph.startsWith('0'))ph=ph.substring(1);
-      var myDates={};
-      if(ph.length>=8){
-        APTS.forEach(function(a){
-          if(a.cancelled)return;
-          var aPh=(a.patientPhone||'').replace(/\D/g,'');
-          if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-          if(aPh.startsWith('0'))aPh=aPh.substring(1);
-          if(aPh===ph)myDates[a.date]=true;
-        });
-      }
+      var myDates=_pfMyDates(); /* v74 : la personne choisie, séances seulement */
       document.querySelectorAll('.cal-day:not(.dis)').forEach(function(d){
         if(!myDates[d.dataset.k])d.classList.add('guide-glow');
       });
@@ -3289,6 +3309,9 @@ function showHelpForScreen(screenId){
   if(screenId==='sW'){
     showTip('① <b>Entrez votre numéro de téléphone</b> dans le champ en bas de l\'écran. Il servira à retrouver vos rendez-vous.<br><br>② Appuyez sur <b>« 📅 Prendre un rendez-vous »</b>.','top');
   }
+  else if(screenId==='s0'){
+    showTip('👥 <b>Choisissez la personne</b> qui vient en séance : vous, votre enfant, un proche… Chaque personne a ses propres rendez-vous ; votre numéro reste le contact.','top'); /* v74 */
+  }
   else if(screenId==='s1'){
     showTip('③ <b>Appuyez sur votre type de séance</b>, puis sur <b>« Suivant »</b>.','top');
   }
@@ -3325,11 +3348,12 @@ function _pfRemNote(){
    ou le fichier .ics (partage vers l'appli d'agenda, sinon téléchargement). */
 function addToCalendar(){
   if(!SEL.date||!SEL.time||!SEL.motif)return;
-  openCalSheet(SEL.date,SEL.time,SEL.motif);
+  var who='';try{if(_pfPeopleLoad().length>1)who=(SEL_PATIENT&&SEL_PATIENT.firstName)||'';}catch(e){}
+  openCalSheet(SEL.date,SEL.time,SEL.motif,who);
 }
-function _calEv(date,time,motif){
+function _calEv(date,time,motif,who){
   var proName=CFG.proName||'Kinésithérapeute';
-  var lab=(motif&&motif.label)||'Séance';
+  var lab=(who?who+' : ':'')+((motif&&motif.label)||'Séance'); /* v74 : pour qui */
   var dur=parseInt((motif&&motif.duration)||30,10)||30;
   var dp=String(date).split('-'),tp=String(time).split(':');
   var start=new Date(+dp[0],+dp[1]-1,+dp[2],+tp[0],+(tp[1]||0),0,0);
@@ -3401,8 +3425,8 @@ function _calGo(kind){
   _calFile(ev,false);
 }
 function closeCalSheet(){var o=document.getElementById('calSheet');if(o)o.remove();}
-function openCalSheet(date,time,motif){
-  var ev=_calEv(date,time,motif);window._calEvCur=ev;
+function openCalSheet(date,time,motif,who){
+  var ev=_calEv(date,time,motif,who);window._calEvCur=ev;
   var pf=_calPlatform(),opts;
   if(pf==='ios')opts=[['apple','🗓️ Calendrier de l\'iPhone','L\'agenda d\'origine de votre iPhone'],['google','📅 Google Agenda','Si vous utilisez Google Agenda'],['file','📲 Autre application d\'agenda','Fichier à ouvrir avec votre appli']];
   else if(pf==='android')opts=[['google','📅 Google Agenda','L\'agenda Google de votre téléphone'],['file','📲 Autre agenda (Samsung, Outlook…)','Fichier à ouvrir avec votre appli d\'agenda'],['outlook','📧 Outlook (en ligne)','']];
@@ -3483,22 +3507,15 @@ function checkUpcomingReminders(){
   try{var s=JSON.parse(localStorage.getItem('pf_patient')||'{}');ph=s.phone||''}catch(e){}
   var pid='';try{pid=localStorage.getItem('pf_patientId')||''}catch(e){}
   if(!ph&&!pid)return;
-  var normPh=ph.replace(/\D/g,'');
-  if(normPh.startsWith('33')&&normPh.length>9)normPh=normPh.substring(2);
-  if(normPh.startsWith('0'))normPh=normPh.substring(1);
   var now=Date.now();
   var lastReminder='';try{lastReminder=localStorage.getItem('pf_lastReminder')||''}catch(e){}
+  var _ids={};_pfPeopleLoad().forEach(function(p){_ids[p.id]=1;});if(pid)_ids[pid]=1;
+  var _nums=_pfMyNums();
   APTS.forEach(function(a){
-    if(a.cancelled||!a.date||!a.time)return;
+    if(!_pfSeance(a)||!a.date||!a.time)return; /* v74 : séances seulement */
     /* Match by phone or patientId */
-    var mine=false;
-    if(pid&&a.patientId===pid)mine=true;
-    if(!mine&&a.patientPhone){
-      var aPh=(a.patientPhone||'').replace(/\D/g,'');
-      if(aPh.startsWith('33')&&aPh.length>9)aPh=aPh.substring(2);
-      if(aPh.startsWith('0'))aPh=aPh.substring(1);
-      if(aPh===normPh&&aPh.length>=8)mine=true;
-    }
+    var mine=!!(a.patientId&&_ids[a.patientId]);
+    if(!mine&&a.patientPhone){var _n=_normPhoneMatch(a.patientPhone);if(_n.length>=8&&_nums.indexOf(_n)>=0)mine=true;}
     if(!mine)return;
     var hh=parseInt(a.time.split(':')[0]),mm=parseInt(a.time.split(':')[1]||'0');
     var aptMs=new Date(a.date+'T00:00:00').getTime()+(hh*60+mm)*60000;
@@ -3538,7 +3555,7 @@ window.addEventListener('appinstalled',function(){
   hideTip();
   TUTO.active=true;TUTO.step=1;
   var cur=document.querySelector('.step.on');
-  if(cur)tutoForScreen(cur.id);
+  if(cur)showHelpForScreen(cur.id); /* v74 : tutoForScreen n'existait plus */
 });
 </script>
 </body>
