@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 72</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 73</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -355,7 +355,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
     <script>
     (function(){var t=document.getElementById('calHelpTxt');if(!t)return;
     var iOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
-    t.textContent=iOS?'Appuyez sur le fichier téléchargé pour l\'ouvrir':'Cliquez sur « Ouvrir » à la fin du téléchargement';
+    t.textContent=iOS?'Calendrier de l\'iPhone, Google Agenda…':'Google Agenda, Samsung, Outlook…'; /* v73 */
     })();
     </script>
     <div style="margin-top:12px">
@@ -475,7 +475,7 @@ function toast(m){var t=document.getElementById('tst');t.textContent=m;t.classLi
 /* ═══ LOAD DATA FROM FIREBASE ═══ */
 function loadData(){
   REF.child('config').once('value').then(function(snap){
-    CFG=snap.val();
+    CFG=_pfNormCfg(snap.val()); /* v73 */
     if(!CFG||!CFG.motifs||!CFG.motifs.length){
       showStep('sErr');return;
     }
@@ -484,7 +484,7 @@ function loadData(){
   }).then(function(snap){
     if(!snap)return;
     var d=snap.val();
-    APTS=Array.isArray(d)?d:(d?Object.values(d):[]);
+    APTS=_pfNormApts(Array.isArray(d)?d:(d?Object.values(d):[])); /* v73 */
     /* Show welcome screen with proName */
     var proName=CFG.proName||'votre kinésithérapeute';
     document.getElementById('welcomeTitle').textContent='Bienvenue chez '+proName;
@@ -529,12 +529,15 @@ function loadData(){
     var c=snap.val();
     if(!c||!c.motifs||!c.motifs.length)return;
     if(!CFG)return; /* premier chargement géré plus haut */
-    CFG.patientAlerts=c.patientAlerts||[];
-    CFG.announcements=c.announcements||[]; /* v61 */
-    CFG.breaks=c.breaks||{};
-    CFG.slotVisibility=c.slotVisibility||{};
-    CFG.openHolidays=c.openHolidays||{};
+    /* v73 — toute la configuration est reprise (motifs, horaires, agenda futur, breaks, ouvertures,
+       patients bloqués, labels…) : une appli restée ouverte ne garde plus d'anciennes règles */
+    if(!c.bookingRules)c.bookingRules={minHoursBefore:2,maxDaysAhead:60};
+    CFG=_pfNormCfg(c);
+    _pfKnownMemo={t:0,v:false};
+    if(SEL.motif&&SEL.motif.id){var _nm=_pfMotifById(SEL.motif.id,SEL.date);if(_nm)SEL.motif=_nm;}
     if(typeof renderMyAlerts==='function')renderMyAlerts();
+    var s1=document.getElementById('s1');
+    if(s1&&s1.classList.contains('on'))renderMotifs();
     var s3=document.getElementById('s3');
     if(s3&&s3.classList.contains('on'))renderSlots();
     var s2=document.getElementById('s2');
@@ -544,7 +547,7 @@ function loadData(){
   /* Listen for real-time appointment changes and re-render */
   REF.child('appointments').on('value',function(snap){
     var d=snap.val();
-    APTS=Array.isArray(d)?d:(d?Object.values(d):[]);
+    APTS=_pfNormApts(Array.isArray(d)?d:(d?Object.values(d):[])); /* v73 */
     /* Re-render current view if on slots or my bookings */
     var slotsStep=document.getElementById('s3');
     if(slotsStep && slotsStep.classList.contains('on')) renderSlots();
@@ -1026,7 +1029,8 @@ function goStep(n){
     for(var _d=new Date(_now);_d<=_maxDate;_d.setDate(_d.getDate()+1)){
       var _dk=dk(_d);
       var _onVac=false;_vacP.forEach(function(v){if(v.from&&v.to&&_dk>=v.from&&_dk<=v.to)_onVac=true});
-      if(CFG.days.includes(_d.getDay())&&(_d>=_minDate||forcedExoOpenOn(_dk,SEL.motif))&&!_onVac){ /* v70 */
+      var _mAt0=_pfMotifAt(SEL.motif,_dk); /* v73 : agenda en vigueur ce jour-là */
+      if(_pfDaysAt(_dk).indexOf(_d.getDay())>=0&&_mAt0&&(_d>=_minDate||forcedExoOpenOn(_dk,_mAt0))&&!_onVac){ /* v70 */
         calView=new Date(_d.getFullYear(),_d.getMonth(),1);
         window._firstAvailDay=_d.getDate(); /* remember for renderCal */
         window._firstAvailMonth=_d.getMonth();
@@ -1097,7 +1101,7 @@ function goMyBookings(){
   } else {
     box.innerHTML=futureApts.map(function(a){
       var dt=new Date(a.date+'T00:00:00');
-      var motif=CFG.motifs.find(function(m){return m.id===a.motifId});
+      var motif=_pfMotifById(a.motifId,a.date); /* v73 */
       var isToday=a.date===todayK;
       return '<div style="padding:10px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px">'+
         '<div style="font-weight:600;font-size:13px">'+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+(isToday?' (aujourd\'hui)':'')+' à <b>'+a.time+'</b></div>'+
@@ -1112,32 +1116,11 @@ function goMyBookings(){
   showStep('sMB');
 }
 
-/* Add to calendar from booking list */
+/* Add to calendar from booking list (v73 : même choix que l'écran de confirmation) */
 function addToCalFromList(apId){
   var ap=APTS.find(function(a){return a.id===apId});
   if(!ap){toast('RDV introuvable');return;}
-  var motif=CFG.motifs.find(function(m){return m.id===ap.motifId});
-  var proName=CFG.proName||'Kinésithérapeute';
-  var motLabel=motif?motif.label:'Séance';
-  var dur=motif?motif.duration:30;
-  var dp=ap.date.split('-'),tp=ap.time.split(':');
-  var start=new Date(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]),parseInt(tp[0]),parseInt(tp[1]));
-  var end=new Date(start.getTime()+dur*60000);
-  function p2(n){return n<10?'0'+n:''+n}
-  function icsD(d){return d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00'}
-  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PhysioFlow//FR\r\nBEGIN:VEVENT\r\n'+
-    'DTSTART:'+icsD(start)+'\r\nDTEND:'+icsD(end)+'\r\n'+
-    'SUMMARY:'+motLabel+' — '+proName+'\r\n'+
-    'DESCRIPTION:Rendez-vous PhysioFlow - '+motLabel+' avec '+proName+'\r\n'+
-    'BEGIN:VALARM\r\nTRIGGER:-PT1H\r\nACTION:DISPLAY\r\nDESCRIPTION:RDV dans 1h\r\nEND:VALARM\r\n'+
-    'END:VEVENT\r\nEND:VCALENDAR';
-  var blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
-  var url=URL.createObjectURL(blob);
-  var a=document.createElement('a');
-  a.href=url;a.download='rdv-physioflow-'+ap.date+'.ics';
-  a.style.display='none';document.body.appendChild(a);a.click();
-  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url)},2000);
-  toast('Fichier calendrier téléchargé');
+  openCalSheet(ap.date,ap.time,_pfMotifById(ap.motifId,ap.date)||{label:'Séance',duration:ap.duration||30});
 }
 
 /* v62 — délai minimum avant la séance pour pouvoir DÉCALER */
@@ -1155,7 +1138,7 @@ function _hoursUntilApt(ap){
 }
 /* v64 — capacité du créneau d'un RDV (avec exception éventuelle du jour) */
 function _apSlotMax(ap){
-  var motif=(CFG.motifs||[]).find(function(m){return m.id===ap.motifId});
+  var motif=_pfMotifById(ap.motifId,ap.date); /* v73 */
   if(!motif)return 1;
   return parseInt((_slotExFor(ap.date,motif))[ap.time]||motif.slots||1)||1; /* v67 */
 }
@@ -1272,23 +1255,15 @@ function cancelReschedule(){
 function rescheduleFromList(apId){
   var ap=APTS.find(function(a){return a.id===apId});
   if(!ap){toast('RDV introuvable');return;}
-  var motif=CFG.motifs.find(function(m){return m.id===ap.motifId});
+  var motif=_pfMotifById(ap.motifId,ap.date); /* v73 : agenda en vigueur le jour du RDV */
   if(!motif){toast('Motif introuvable');return;}
   /* v62 — délai minimum pour décaler, réglé par le kiné dans les paramètres */
   if(!_checkReschedDeadline(ap,apId))return;
-  /* Check if futureAgenda exists and the new date would cross it */
-  var futAg=CFG.futureAgenda;
   window._rescheduleOldApId=apId;
   window._rescheduleOldDate=ap.date;
   window._rescheduleOldTime=ap.time;                    /* v59 */
   window._rescheduleOldMotif=motif.label||'Séance';     /* v59 */
-  window._rescheduleMaxDate=null;
-  if(futAg&&futAg.startDate){
-    /* Old rdv is before agenda change: don't allow reschedule past the change */
-    if(ap.date<futAg.startDate){
-      window._rescheduleMaxDate=futAg.startDate;
-    }
-  }
+  window._rescheduleMaxDate=null; /* v73 : le motif est recalculé pour chaque date (agenda actuel ou futur) */
   /* Set motif and go to calendar step */
   SEL.motif=motif;SEL.date=null;SEL.time=null;
   window._sameDayConfirmed=false;
@@ -1325,27 +1300,28 @@ function cancelFromList(apId){
     }
   }
   SEL.date=ap.date;SEL.time=ap.time;
-  SEL.motif=CFG.motifs.find(function(m){return m.id===ap.motifId})||{label:'Séance'};
+  SEL.motif=_pfMotifById(ap.motifId,ap.date)||{label:'Séance'}; /* v73 */
   showCancel();
 }
 
 /* ═══ STEP 1: MOTIFS ═══ */
 function renderMotifs(){
   var box=document.getElementById('motifChips');
-  var motifsSource=window._usingFutureAgenda&&CFG.futureAgenda&&CFG.futureAgenda.motifs?CFG.futureAgenda.motifs:CFG.motifs;
-  var visibleMotifs=motifsSource.filter(function(m){return !m.hiddenForPatient});
-  /* v66 — motifs réservés aux nouveaux patients / aux patients déjà venus
-     (pas de filtre pendant un décalage : le RDV existe déjà) */
-  if(!(typeof isRescheduling==='function'&&isRescheduling())){
-    var _known=_pfPatientIsKnown();
-    visibleMotifs=visibleMotifs.filter(function(m){return _pfMotifForMe(m,_known)});
+  /* v73 — motifs des deux agendas (actuel / futur) quand la fenêtre de réservation couvre le changement ;
+     v66 — motifs réservés aux nouveaux patients / aux patients déjà venus (pas de filtre pendant un décalage) */
+  var _resch73=(typeof isRescheduling==='function'&&isRescheduling());
+  var visibleMotifs=_resch73?((CFG.motifs||[]).filter(function(m){return !m.hiddenForPatient})):_pfMotifChoices(_pfPatientIsKnown());
+  if(!_resch73){
     if(SEL.motif&&!visibleMotifs.some(function(m){return m.id===SEL.motif.id})){SEL.motif=null;SEL.date=null;SEL.time=null;}
   }
-  /* Show banner if using future agenda */
   var banner='';
-  if(window._usingFutureAgenda&&CFG.futureAgenda&&CFG.futureAgenda.date){
-    var faD=new Date(CFG.futureAgenda.date+'T00:00:00');
-    banner='<div style="padding:8px;background:#fff3cd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#8a6d3b;text-align:center">⚠️ Nouveaux motifs à partir du '+faD.getDate()+' '+MN[faD.getMonth()]+'</div>';
+  var _fa73=_pfFA();
+  if(_fa73&&!_resch73){
+    var _r73=CFG.bookingRules||{},_mx73=new Date();_mx73.setDate(_mx73.getDate()+(_r73.maxDaysAhead||60));
+    if(dk(_mx73)>=_fa73.date&&dk(new Date())<_fa73.date){
+      var faD=new Date(_fa73.date+'T00:00:00');
+      banner='<div style="padding:8px;background:#fff3cd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#8a6d3b;text-align:center">📅 Nouvel agenda à partir du '+faD.getDate()+' '+MN[faD.getMonth()]+' : les horaires proposés tiennent compte de la date choisie.</div>';
+    }
   }
   if(!visibleMotifs.length){ /* v66 */
     var _pp=CFG.proPhone||'';
@@ -1361,8 +1337,7 @@ function renderMotifs(){
   box.querySelectorAll('.chip').forEach(function(c){
     c.onclick=function(){
       var mid=c.dataset.mid;
-      var ms=window._usingFutureAgenda&&CFG.futureAgenda&&CFG.futureAgenda.motifs?CFG.futureAgenda.motifs:CFG.motifs;
-      SEL.motif=ms.find(function(m){return m.id===mid})||null;
+      SEL.motif=visibleMotifs.find(function(m){return m.id===mid})||null; /* v73 */
       SEL.date=null;SEL.time=null;
       renderMotifs();
       renderMotifDesc();
@@ -1421,6 +1396,111 @@ function _pfMotifForMe(m,known){
   var a=m&&m.audience;
   return !a||a==='all'||(a==='new'&&!known)||(a==='known'&&known);
 }
+/* ═══ v73 — AGENDA FUTUR : à chaque date, l'agenda en vigueur ce jour-là ═══
+   Avant la date du changement : motifs et jours actuels. À partir de cette date : ceux de l'agenda futur.
+   Un motif est reconnu par son identifiant (à défaut par son nom). */
+function _pfFA(){var fa=CFG&&CFG.futureAgenda;return (fa&&fa.date&&Array.isArray(fa.motifs)&&fa.motifs.length)?fa:null;}
+function _pfMotifById(id,dateKey){
+  if(!id)return null;
+  var fa=_pfFA(),cur=(CFG&&CFG.motifs)||[],fut=fa?fa.motifs:[];
+  var f=function(L){for(var i=0;i<L.length;i++){if(L[i]&&L[i].id===id)return L[i];}return null;};
+  var r=(fa&&dateKey&&dateKey>=fa.date)?(f(fut)||f(cur)):(f(cur)||f(fut));
+  if(r)return r;
+  /* motif retiré lors d'un changement d'agenda : son nom reste affiché pour les anciens RDV */
+  var a=f((CFG&&CFG.motifArchive)||[]);
+  return a?{id:a.id,label:a.label||'Séance',duration:a.duration||30,times:[],slots:1,hiddenForPatient:true,archived:true}:null;
+}
+var _pfKnownMemo={t:0,v:false};
+function _pfKnownQuick(){var n=Date.now();if(n-_pfKnownMemo.t>1500){_pfKnownMemo={t:n,v:_pfPatientIsKnown()};}return _pfKnownMemo.v;}
+/* version du motif en vigueur à cette date ; null = ce type de séance n'est pas proposé ce jour-là */
+function _pfMotifAt(motif,dateKey){
+  if(!motif)return null;
+  if(!dateKey)return motif;
+  var fa=_pfFA(),L=(fa&&dateKey>=fa.date)?fa.motifs:((CFG&&CFG.motifs)||[]),m=null,i;
+  for(i=0;i<L.length;i++){if(L[i]&&L[i].id===motif.id){m=L[i];break;}}
+  if(!m&&motif.label){for(i=0;i<L.length;i++){if(L[i]&&L[i].label===motif.label){m=L[i];break;}}}
+  if(!m)return null;
+  if(!(typeof isRescheduling==='function'&&isRescheduling())){
+    if(m.hiddenForPatient)return null;
+    if(!_pfMotifForMe(m,_pfKnownQuick()))return null;
+  }
+  return m;
+}
+/* jours travaillés en vigueur à cette date */
+function _pfDaysAt(dateKey){
+  var fa=_pfFA();
+  if(fa&&dateKey&&dateKey>=fa.date&&Array.isArray(fa.days)&&fa.days.length)return fa.days.map(Number);
+  return ((CFG&&CFG.days)||[]).map(Number);
+}
+/* motifs proposés au patient sur toute sa fenêtre de réservation (agenda actuel et/ou futur) */
+function _pfMotifChoices(known){
+  var fa=_pfFA(),r=(CFG&&CFG.bookingRules)||{},now=new Date(),mx=new Date(now);mx.setDate(mx.getDate()+(r.maxDaysAhead||60));
+  var tK=dk(now),mK=dk(mx),lists=[];
+  if(!fa||tK<fa.date)lists.push((CFG&&CFG.motifs)||[]);
+  if(fa&&mK>=fa.date)lists.push(fa.motifs);
+  var ids=[],pick={};
+  lists.forEach(function(L){L.forEach(function(m){
+    if(!m||!m.id)return;
+    if(ids.indexOf(m.id)<0)ids.push(m.id);
+    if(!pick[m.id]&&!m.hiddenForPatient&&_pfMotifForMe(m,known))pick[m.id]=m;
+  });});
+  return ids.map(function(id){return pick[id]}).filter(Boolean);
+}
+/* ═══ v73 — LABEL DE TRAITEMENT (simple / standard / complexe), réglé par le kiné sur la fiche ═══
+   CFG.knownPatients[].l : 's' = simple, 'c' = complexe (absent = standard).
+   CFG.labelVis[motifId] = { 'HH:MM': [labels autorisés], '*': [labels autorisés pour les autres horaires] } */
+function _pfMyLabel(){
+  var kp=((CFG&&CFG.knownPatients)||[]).filter(Boolean);
+  if(!kp.length)return 'standard';
+  var nums=[],m=getMyNormPhone();
+  if(m&&m.length>=8)nums.push(m);
+  try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');(o.extraPhones||[]).forEach(function(ep){var x=_normPhoneMatch(ep);if(x.length>=8&&nums.indexOf(x)<0)nums.push(x);});}catch(e){}
+  var nm='';try{nm=(typeof _pfSelName==='function'?_pfSelName():getMyNormName())||'';}catch(e){nm=getMyNormName()||'';}
+  nm=String(nm).trim().toLowerCase();
+  var same=function(x){return !!(x&&nm&&(x===nm||nm.indexOf(x)>=0||x.indexOf(nm)>=0));};
+  var cand=kp.filter(function(k){return k.ph&&nums.indexOf(k.ph)>=0});
+  if(cand.length>1){var byName=cand.filter(function(k){return same(k.name)});if(byName.length)cand=byName;}
+  if(!cand.length&&nm.length>4)cand=kp.filter(function(k){return k.name===nm});
+  if(!cand.length)return 'standard';
+  var l=cand[0].l;
+  return l==='s'?'simple':(l==='c'?'complexe':'standard');
+}
+function _pfLabelAllows(motifId,time,dateKey){
+  var lv=CFG&&CFG.labelVis&&CFG.labelVis[motifId];
+  if(!lv||typeof lv!=='object')return true;
+  var allowed;
+  if(Object.prototype.hasOwnProperty.call(lv,time))allowed=lv[time];
+  else{
+    /* une heure type sans règle reste visible ; '*' = les autres horaires (ouvertures exceptionnelles, places supplémentaires) */
+    var m=_pfMotifById(motifId,dateKey),typ=!!(m&&(m.times||[]).indexOf(time)>=0);
+    allowed=typ?null:lv['*'];
+  }
+  if(!Array.isArray(allowed))return true;
+  return allowed.indexOf(_pfMyLabel())>=0;
+}
+/* ═══ v73 — heures toujours au format HH:MM (« 8:30 » → « 08:30 ») : sinon un RDV pris
+   à « 8:30 » ne serait pas compté sur le créneau « 08:30 » ═══ */
+function _pfT(t){
+  var s=String(t===undefined||t===null?'':t).trim().toLowerCase().replace(/\s+/g,'');
+  var m=/^(\d{1,2})(?:[:h.](\d{1,2})?)?(?::\d{2})?$/.exec(s);if(!m)return String(t||'');
+  var h=parseInt(m[1],10),mi=m[2]?parseInt(m[2],10):0;if(!(h>=0&&h<=23&&mi>=0&&mi<=59))return String(t||'');
+  return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi;
+}
+function _pfNormMotif(m){
+  if(!m||typeof m!=='object')return;
+  if(Array.isArray(m.times)){var L=[];m.times.forEach(function(x){var t=_pfT(x);if(t&&L.indexOf(t)<0)L.push(t);});m.times=L;}
+  if(m.slotExceptions&&typeof m.slotExceptions==='object'){var o={};Object.keys(m.slotExceptions).forEach(function(k){o[_pfT(k)]=m.slotExceptions[k];});m.slotExceptions=o;}
+}
+function _pfNormCfg(c){
+  if(!c)return c;
+  (c.motifs||[]).forEach(_pfNormMotif);
+  if(c.futureAgenda&&Array.isArray(c.futureAgenda.motifs))c.futureAgenda.motifs.forEach(_pfNormMotif);
+  var ex=c.exceptionalOpenings;(Array.isArray(ex)?ex:Object.keys(ex||{}).map(function(k){return ex[k]})).forEach(function(r){if(r&&r.time)r.time=_pfT(r.time);});
+  var xs=c.extraSlots||{};Object.keys(xs).forEach(function(k){(xs[k]||[]).forEach(function(x){if(x){if(x.time)x.time=_pfT(x.time);if(x.srcTime)x.srcTime=_pfT(x.srcTime);}});});
+  if(c.slotVisibility&&typeof c.slotVisibility==='object'){var sv={};Object.keys(c.slotVisibility).forEach(function(k){var p=k.split('|');sv[p.length===3?p[0]+'|'+_pfT(p[1])+'|'+p[2]:k]=c.slotVisibility[k];});c.slotVisibility=sv;}
+  return c;
+}
+function _pfNormApts(L){(L||[]).forEach(function(a){if(a&&a.time)a.time=_pfT(a.time);});return L;}
 function getMyNormName(){
   var s='';
   try{var o=JSON.parse(localStorage.getItem('pf_patient')||'{}');s=((o.lastName||'')+' '+(o.firstName||'')).trim().toLowerCase()}catch(e){}
@@ -1433,7 +1513,7 @@ function getMyNormName(){
 function slotVisibleToMe(dateKey,time,motifId){
   var rules=(CFG&&CFG.slotVisibility)||{};
   var r=rules[dateKey+'|'+time+'|'+motifId];
-  if(!r)return true; /* no rule => visible to everyone */
+  if(!r)return _pfLabelAllows(motifId,time,dateKey); /* v73 : sans règle pour ce patient, le label de traitement décide */
   var myPh=getMyNormPhone();
   var myName=getMyNormName();
   var inList=false;
@@ -1441,8 +1521,8 @@ function slotVisibleToMe(dateKey,time,motifId){
   if(!inList&&myName&&myName.length>2&&r.names&&r.names.length){
     inList=r.names.some(function(n){return n&&(n===myName||myName.indexOf(n)>=0||n.indexOf(myName)>=0)});
   }
-  if(r.mode==='except')return !inList; /* hidden for listed patients */
-  return inList; /* 'only' => visible only to listed patients */
+  if(r.mode==='except')return !inList&&_pfLabelAllows(motifId,time,dateKey); /* hidden for listed patients */
+  return inList; /* 'only' => visible only to listed patients (choisis nommément : le label ne les écarte pas) */
 }
 /* ══════════════════════════════════════════════════════════════════
    v60 — SIGNALEMENTS DU KINÉ
@@ -1587,11 +1667,19 @@ function renderMyAlerts(){
 function checkDateHasSlots(dateKey){
   if(!SEL.motif)return true; /* Can't determine without motif */
   if(closedHolidayName(dateKey))return false; /* Closed French holiday => no availability */
-  var motif=SEL.motif;
+  var motif=_pfMotifAt(SEL.motif,dateKey); /* v73 : version du motif en vigueur ce jour-là */
+  if(!motif)return false;
   var maxSlots=motif.slots||1;
   var slotEx=_slotExFor(dateKey,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice(); /* v71 — pas d'heure typique = aucun créneau régulier (seules les ouvertures exceptionnelles de ce motif) */
-  var dayApts=APTS.filter(function(a){return a.date===dateKey&&!a.cancelled});
+  var dayApts=APTS.filter(function(a){return a.date===dateKey&&!a.cancelled&&!(window._rescheduleOldApId&&a.id===window._rescheduleOldApId)}); /* v73 : le RDV déplacé ne bloque pas sa nouvelle place */
+  /* v73 — mêmes délais que renderSlots : un jour en surbrillance a au moins un horaire réservable */
+  var _r73=CFG.bookingRules||{},_now73=new Date(),_minT73=new Date(_now73.getTime()+(_r73.minHoursBefore||2)*3600000),_mD73=new Date(_minT73.getTime());
+  if(window._patientDelayDays>0){var _dd73=new Date(_now73);_dd73.setDate(_dd73.getDate()+window._patientDelayDays);_dd73.setHours(0,0,0,0);if(_dd73>_mD73)_mD73=_dd73;}
+  var _xD73=new Date(_now73);_xD73.setDate(_xD73.getDate()+(_r73.maxDaysAhead||60));
+  if(window._rescheduleMaxDate){var _rM73=new Date(window._rescheduleMaxDate+'T00:00:00');_rM73.setDate(_rM73.getDate()-1);if(_rM73<_xD73)_xD73=_rM73;}
+  var _sd73=new Date(dateKey+'T00:00:00');
+  var _dayOut73=_sd73<new Date(_mD73.getFullYear(),_mD73.getMonth(),_mD73.getDate())||_sd73>_xD73;
   /* v63 — places supplémentaires encore offertes */
   _extraLinksAt(dateKey).forEach(function(x){
     if(!x||x.motifId!==motif.id)return;
@@ -1616,6 +1704,13 @@ function checkDateHasSlots(dateKey){
         var be=tm+(motif.duration||30);
         return tm<ae&&be>as;
       });
+    }else{
+      /* v73 — motif simultané : seul le motif partenaire peut se superposer (comme renderSlots) */
+      generalOverlap=dayApts.some(function(a){
+        if(a.motifId===motif.id||a.motifId===motif.simulWith)return false;
+        var as=t2m(a.time),ae=as+(a.duration||30);
+        return tm<ae&&(tm+(motif.duration||30))>as;
+      });
     }
     var _isX=isExtraSlot(dateKey,t,motif.id);
     if(_isX){
@@ -1630,7 +1725,11 @@ function checkDateHasSlots(dateKey){
         return tm<ae && (tm+(motif.duration||30))>as;
       });
     }
-    if(!_isX&&isForcedExo(dateKey,t,motif.id))generalOverlap=_forcedAbsOverlap(dateKey,t,motif,dayApts); /* v70 */
+    var _fx73=!_isX&&isForcedExo(dateKey,t,motif.id);
+    if(_fx73)generalOverlap=_forcedAbsOverlap(dateKey,t,motif,dayApts); /* v70 */
+    /* v73 — horaire trop proche (ou jour hors délais sans ouverture forcée) : pas réservable */
+    var _sl73=new Date(_sd73);_sl73.setHours(Math.floor(tm/60),tm%60,0,0);
+    if(_fx73?(_sl73.getTime()<=Date.now()):(_sl73<_minT73||_dayOut73))continue;
     /* v64 — même restriction pour le grisage du calendrier */
     if(window._reschedExtraOnly&&window._rescheduleOldApId&&!_isX)continue;
     if(bookingsAtSlot<thisMax&&!generalOverlap&&slotVisibleToMe(dateKey,t,motif.id)
@@ -1698,7 +1797,7 @@ function extraSlotOpen(dateKey,time,motifId,dayApts){
   /* une seule place par horaire : si un motif l'a prise, les autres ferment */
   if(extraTimeBusy(dateKey,time,dayApts))return false;
   return links.some(function(x){
-    var src=(CFG.motifs||[]).find(function(m){return m.id===x.srcMotifId});
+    var src=_pfMotifById(x.srcMotifId,dateKey); /* v73 */
     if(!src)return false;
     var max=parseInt((src.slotExceptions||{})[x.srcTime]||src.slots||1)||1;
     /* seuil Y transmis par le kiné ; absent => max-1 (« tant que pas complet ») */
@@ -1716,8 +1815,22 @@ var PM_START=13*60; /* frontière matin / après-midi */
 function _halfOf(mins){return mins<PM_START?'am':'pm';}
 function _breakRanges(dateKey){
   var all=(CFG&&CFG.breaks)||{};
-  var list=all[dateKey];
-  if(!Array.isArray(list))return [];
+  var list=Array.isArray(all[dateKey])?all[dateKey].slice():[];
+  /* v73 — règles des breaks lues directement : valables à toute date, même au-delà de la dernière publication */
+  var rules=(CFG&&CFG.breakRules)||[];
+  if(!Array.isArray(rules))rules=Object.keys(rules).map(function(k){return rules[k]});
+  if(rules.length&&dateKey){
+    var dow=new Date(dateKey+'T00:00:00').getDay();
+    rules.forEach(function(b){
+      if(!b||!b.from||!b.to)return;
+      if(b.mode==='once'){if(Array.isArray(b.dates)&&b.dates.indexOf(dateKey)>=0)list.push(b);return;}
+      var dows=Array.isArray(b.dows)?b.dows.map(Number):[];
+      if(dows.indexOf(dow)<0)return;
+      if(b.fromDate&&dateKey<b.fromDate)return;
+      if(b.toDate&&dateKey>b.toDate)return;
+      list.push(b);
+    });
+  }
   return list.map(function(b){
     if(!b||!b.from||!b.to)return null;
     var f=t2m(b.from),t=t2m(b.to);
@@ -1838,13 +1951,11 @@ function _breakHalfSaturated(dateKey,motif,half,dayApts){
   _brkSatCache[ck]=res;
   return res;
 }
-/* Décision finale pour un créneau */
+/* Décision finale pour un créneau — v73 : un break ferme sa plage, sans exception
+   (seule une ouverture exceptionnelle posée par le kiné l'emporte, vérifiée par l'appelant) */
 function slotBlockedByBreak(dateKey,t,motif,dayApts){
   if(!motif)return false;
-  var tm=t2m(t);
-  if(!_slotInsideBreak(dateKey,tm,motif.duration))return false;
-  /* dans le break : on ne le rouvre que si la demi-journée est saturée ailleurs */
-  return !_breakHalfSaturated(dateKey,motif,_halfOf(tm),dayApts);
+  return _slotInsideBreak(dateKey,t2m(t),motif.duration);
 }
 
 /* ═══ JOURS FÉRIÉS FRANÇAIS (calcul automatique) ═══ */
@@ -1909,7 +2020,8 @@ function renderCal(){
     var fdt=new Date(y,m,fd);
     var fk=dk(fdt);
     var fOnVac=false;vacPeriods.forEach(function(v){if(v.from&&v.to&&fk>=v.from&&fk<=v.to)fOnVac=true});
-    if(CFG.days.includes(fdt.getDay())&&((fdt>=minDate&&fdt<=maxDate)||(fdt>=today&&forcedExoOpenOn(fk,SEL.motif)))&&!fOnVac){firstAvail=fd;break} /* v70 */
+    var _fm73=_pfMotifAt(SEL.motif,fk); /* v73 */
+    if(_pfDaysAt(fk).indexOf(fdt.getDay())>=0&&_fm73&&((fdt>=minDate&&fdt<=maxDate)||(fdt>=today&&forcedExoOpenOn(fk,_fm73)))&&!fOnVac){firstAvail=fd;break} /* v70 */
   }
   /* Use remembered firstAvailDay if we're on the auto-navigated month */
   if(window._firstAvailDay&&window._firstAvailMonth===m&&window._firstAvailYear===y){
@@ -1957,13 +2069,14 @@ function renderCal(){
     var dt=new Date(y,m,d);
     var k=dk(dt);
     var dow=dt.getDay();
-    var ok=CFG.days.includes(dow);
+    var _dm73=_pfMotifAt(SEL.motif,k); /* v73 : jours et motif de l'agenda en vigueur ce jour-là */
+    var ok=_pfDaysAt(k).indexOf(dow)>=0&&!!_dm73;
     var tooSoon=dt<new Date(minDate.getFullYear(),minDate.getMonth(),minDate.getDate());
     var tooLate=dt>maxDate;
     var past=dt<today;
     var onVacation=false;
     vacPeriods.forEach(function(v){if(v.from&&v.to&&k>=v.from&&k<=v.to)onVacation=true});
-    if(!past&&!onVacation&&(tooSoon||tooLate)&&forcedExoOpenOn(k,SEL.motif)){tooSoon=false;tooLate=false;} /* v70 : ouverture forcée */
+    if(!past&&!onVacation&&(tooSoon||tooLate)&&_dm73&&forcedExoOpenOn(k,_dm73)){tooSoon=false;tooLate=false;} /* v70 : ouverture forcée */
     var dis=!ok||tooSoon||tooLate||past||onVacation;
     var sel=SEL.date===k;
     var isToday=k===todayK;
@@ -2061,45 +2174,10 @@ function renderCal(){
         var exTimes=existingOnDate.map(function(a){return a.time}).join(', ');
         toast('ℹ️ Vous avez déjà un RDV le '+SEL.date.split('-').reverse().join('/')+' à '+exTimes,4000);
       }
-      /* Check if date is in futureAgenda range */
-      var fa=CFG.futureAgenda;
-      if(fa&&fa.date&&fa.motifs&&fa.motifs.length>0&&SEL.date>=fa.date){
-        /* Switch to future agenda motifs */
-        if(!window._usingFutureAgenda){
-          window._usingFutureAgenda=true;
-          /* Check if current motif still exists in future agenda */
-          var curId=SEL.motif?SEL.motif.id:null;
-          var samMotif=fa.motifs.find(function(m){return m.id===curId});
-          var samLabel=SEL.motif?fa.motifs.find(function(m){return m.label===SEL.motif.label}):null;
-          if(!samMotif&&!samLabel){
-            /* Motif changed — ask patient to re-choose */
-            var fDate=new Date(fa.date+'T00:00:00');
-            toast('⚠️ À partir du '+fDate.getDate()+' '+MN[fDate.getMonth()]+', les consultations changent. Veuillez choisir un nouveau motif.',5000);
-            SEL.motif=null;SEL.time=null;
-            renderCal();
-            goStep(1);
-            return;
-          } else {
-            SEL.motif=samMotif||samLabel;
-          }
-        }
-      } else {
-        if(window._usingFutureAgenda){
-          window._usingFutureAgenda=false;
-          /* Switching back to current agenda — check if motif exists */
-          var curId2=SEL.motif?SEL.motif.id:null;
-          var origMotif=CFG.motifs.find(function(m){return m.id===curId2});
-          var origLabel=SEL.motif?CFG.motifs.find(function(m){return m.label===SEL.motif.label}):null;
-          if(!origMotif&&!origLabel){
-            SEL.motif=null;SEL.time=null;
-            renderCal();
-            goStep(1);
-            return;
-          } else {
-            SEL.motif=origMotif||origLabel;
-          }
-        }
-      }
+      /* v73 — le motif suit l'agenda en vigueur à la date choisie (actuel ou futur) */
+      var _mClick=_pfMotifAt(SEL.motif,SEL.date);
+      if(!_mClick){toast('Ce type de séance n\'est pas proposé à cette date',3500);SEL.date=null;renderCal();return;}
+      SEL.motif=_mClick;
       renderCal();
     };
   });
@@ -2138,7 +2216,7 @@ function getPatientUsualMinute(patientPhone){
 function applySingleSlotFilter(allTimes,dayApts,motif,usualMinute){
   /* Only consider single-slot appointments as "walls" for adjacency */
   var bookedMins=dayApts.filter(function(a){
-    var m2=CFG.motifs&&CFG.motifs.find(function(mx){return mx.id===a.motifId});
+    var m2=_pfMotifById(a.motifId,a.date); /* v73 */
     return (!m2||(m2.slots||1)<=1);
   }).map(function(a){return t2m(a.time)});
 
@@ -2304,7 +2382,14 @@ function renderSlots(){
     return;
   }
   
-  var motif=SEL.motif;
+  var motif=_pfMotifAt(SEL.motif,SEL.date); /* v73 : version du motif en vigueur ce jour-là */
+  if(!motif){
+    var _bx73=document.getElementById('timeSlots'),_ns73=document.getElementById('noSlots');
+    if(_bx73)_bx73.innerHTML='';
+    if(_ns73){_ns73.style.display='block';_ns73.textContent='Ce type de séance n\'est pas proposé à cette date.';}
+    return;
+  }
+  SEL.motif=motif;
   var maxSlots=motif.slots||1;
   var slotEx=_slotExFor(SEL.date,motif); /* v67 */
   var times=(motif.times||[]).filter(Boolean).slice().sort(function(a,b){return t2m(a)-t2m(b)});
@@ -2466,6 +2551,10 @@ function doBook(){
   if(!ph||ph.length<8){toast('Téléphone requis');return;}
 
   if(!SEL.motif||!SEL.date||!SEL.time){toast('Sélection incomplète');return;}
+  var _mBook=_pfMotifAt(SEL.motif,SEL.date); /* v73 : agenda en vigueur le jour choisi */
+  if(!_mBook){toast('Ce type de séance n\'est pas proposé à cette date.');goStep(2);return;}
+  SEL.motif=_mBook;
+  if(_pfDaysAt(SEL.date).indexOf(new Date(SEL.date+'T00:00:00').getDay())<0&&!isExoSlot(SEL.date,SEL.time,SEL.motif.id)){toast('Ce jour n\'est plus ouvert à la réservation.');goStep(2);return;}
 
   /* Same-day warning: check if THIS SPECIFIC patient already has a booking this day */
   var normBookPh=ph.replace(/\D/g,'');
@@ -2581,16 +2670,8 @@ function doBook(){
     source:'patient'
   };
 
-  REF.child('patientBookings').push(booking);
-  /* Write to notifyPro queue for Cloud Function push notification */
-  REF.child('notifyPro').push({
-    type:'booking',
-    patientName:ln+' '+fn,
-    date:booking.date,
-    time:booking.time,
-    motifId:booking.motifId,
-    createdAt:new Date().toISOString()
-  });
+  /* v73 — la réservation n'est transmise au kiné (patientBookings + notification) qu'une fois
+     la place obtenue dans la transaction ci-dessous : plus de RDV en double si la place vient d'être prise */
   /* Also write directly to appointments for immediate sync with other patients */
   var aptEntry={
     id:booking.id,
@@ -2607,12 +2688,23 @@ function doBook(){
     bookedAt:new Date().toISOString()
   };
   /* Append to appointments atomically (transaction prevents lost writes from concurrent bookings) */
+  var _txMax=thisMaxSlots,_txFull=false;
   REF.child('appointments').transaction(function(current){
     var arr=current;
     if(!Array.isArray(arr))arr=arr?Object.values(arr):[];
-    arr.push(aptEntry);
+    /* v73 — même créneau, même motif : places encore libres au moment d'écrire ? */
+    var _n=arr.filter(function(x){return x&&!x.cancelled&&x.id!==aptEntry.id&&x.date===aptEntry.date&&_pfT(x.time)===aptEntry.time&&x.motifId===aptEntry.motifId&&!(_isResched&&x.id===window._rescheduleOldApId)}).length;
+    if(_n>=_txMax&&!arr.some(function(x){return x&&x.id===aptEntry.id})){_txFull=true;return;}
+    _txFull=false;
+    if(!arr.some(function(x){return x&&x.id===aptEntry.id}))arr.push(aptEntry);
     return arr;
-  }).then(function(){
+  }).then(function(res){
+    if(_txFull||(res&&res.committed===false)){
+      btn.disabled=false;btn.textContent='✅ Confirmer la réservation';
+      toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;
+    }
+    REF.child('patientBookings').push(booking);
+    REF.child('notifyPro').push({type:'booking',patientName:ln+' '+fn,date:booking.date,time:booking.time,motifId:booking.motifId,createdAt:new Date().toISOString()});
     btn.disabled=false;btn.textContent='✅ Confirmer la réservation';
     lastBookingId=booking.id;
     /* Show confirmation */
@@ -2648,7 +2740,7 @@ function doBook(){
         '<div style="margin:8px 0"><b>'+esc(SEL.motif.label)+'</b></div>'+
         '<div>'+esc(dateLabel)+' à <b>'+esc(SEL.time)+'</b></div>'+
         '<div style="margin-top:4px">'+esc(ln+' '+fn)+'</div>'+
-        '<div style="margin-top:12px;font-size:12px;color:var(--text3)">Rendez-vous pris avec '+esc(proName)+'.</div>';
+        '<div style="margin-top:12px;font-size:12px;color:var(--text3)">Rendez-vous pris avec '+esc(proName)+'.</div>'+_pfRemNote(); /* v73 */
     }
     showStep('s5');
 
@@ -3218,30 +3310,116 @@ function endTutorial(){endTip()}
 function tryInstallFirst(cb){cb()}
 function blurInputs(){document.activeElement&&document.activeElement.blur&&document.activeElement.blur()}
 
-/* ═══ ADD TO CALENDAR ═══ */
+/* v73 — rappel de RDV envoyé par le cabinet (notification) : annoncé à la réservation */
+function _pfRemNote(){
+  var r=CFG&&CFG.rdvReminders;if(!r||r.on===false)return '';
+  var d1=+r.d1Days||0,d2=+r.d2Hours||0;if(!d1&&!d2)return '';
+  var w=d1?((d1===1?'la veille':d1+' jours avant')+' à '+String(r.d1Time||'18:00').replace(':','h')):('le jour même, '+d2+' h avant');
+  var ok=('Notification' in window)&&Notification.permission==='granted';
+  return '<div style="margin-top:8px;font-size:12px;color:var(--text2)">🔔 Rappel '+w+' par notification'+(ok?'.':' : autorisez les notifications de l\'appli pour le recevoir.')+'</div>';
+}
+/* ═══ ADD TO CALENDAR — v73 ═══
+   Un fichier .ics téléchargé ne s'ouvrait pas partout : Google Agenda (Android) n'importe pas les .ics,
+   et l'appli installée sur iPhone ne télécharge pas les fichiers. On propose le bon chemin selon le
+   téléphone : Google Agenda (lien), Calendrier de l'iPhone (fichier servi par le cabinet), Outlook,
+   ou le fichier .ics (partage vers l'appli d'agenda, sinon téléchargement). */
 function addToCalendar(){
   if(!SEL.date||!SEL.time||!SEL.motif)return;
+  openCalSheet(SEL.date,SEL.time,SEL.motif);
+}
+function _calEv(date,time,motif){
   var proName=CFG.proName||'Kinésithérapeute';
-  var motLabel=SEL.motif.label||'Séance';
-  var dur=SEL.motif.duration||30;
-  var dp=SEL.date.split('-'),tp=SEL.time.split(':');
-  var start=new Date(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]),parseInt(tp[0]),parseInt(tp[1]));
+  var lab=(motif&&motif.label)||'Séance';
+  var dur=parseInt((motif&&motif.duration)||30,10)||30;
+  var dp=String(date).split('-'),tp=String(time).split(':');
+  var start=new Date(+dp[0],+dp[1]-1,+dp[2],+tp[0],+(tp[1]||0),0,0);
   var end=new Date(start.getTime()+dur*60000);
-  function p2(n){return n<10?'0'+n:''+n}
-  function icsD(d){return d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00'}
-  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PhysioFlow//FR\r\nBEGIN:VEVENT\r\n'+
-    'DTSTART:'+icsD(start)+'\r\nDTEND:'+icsD(end)+'\r\n'+
-    'SUMMARY:'+motLabel+' — '+proName+'\r\n'+
-    'DESCRIPTION:Rendez-vous PhysioFlow - '+motLabel+' avec '+proName+'\r\n'+
-    'BEGIN:VALARM\r\nTRIGGER:-PT1H\r\nACTION:DISPLAY\r\nDESCRIPTION:RDV dans 1h\r\nEND:VALARM\r\n'+
-    'END:VEVENT\r\nEND:VCALENDAR';
-  /* Download .ics file — system will show "Open" option */
+  return {title:lab+' — '+proName,desc:'Rendez-vous '+lab+' avec '+proName+(CFG.proPhone?' — Tél. '+CFG.proPhone:''),loc:CFG.proAddress||'',start:start,end:end,
+    uid:'pf-'+String(date).replace(/-/g,'')+'-'+String(time).replace(':','')+'-'+String((motif&&motif.id)||'s').replace(/[^A-Za-z0-9_-]/g,'')+'@physioflow',date:date};
+}
+function _calUtc(d){function p(n){return (n<10?'0':'')+n}return d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+'T'+p(d.getUTCHours())+p(d.getUTCMinutes())+'00Z';}
+function _calEsc(x){return String(x||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');}
+function _calIcs(ev){
+  var L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PhysioFlow//FR','CALSCALE:GREGORIAN','METHOD:PUBLISH','BEGIN:VEVENT',
+    'UID:'+ev.uid,'DTSTAMP:'+_calUtc(new Date()),'DTSTART:'+_calUtc(ev.start),'DTEND:'+_calUtc(ev.end),
+    'SUMMARY:'+_calEsc(ev.title),'DESCRIPTION:'+_calEsc(ev.desc)];
+  if(ev.loc)L.push('LOCATION:'+_calEsc(ev.loc));
+  L.push('BEGIN:VALARM','TRIGGER:-PT1H','ACTION:DISPLAY','DESCRIPTION:'+_calEsc('Rendez-vous dans 1 h'),'END:VALARM','END:VEVENT','END:VCALENDAR');
+  return L.join('\r\n')+'\r\n';
+}
+function _calGoogleUrl(ev){
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+encodeURIComponent(ev.title)+'&dates='+_calUtc(ev.start)+'/'+_calUtc(ev.end)+
+    '&details='+encodeURIComponent(ev.desc)+(ev.loc?'&location='+encodeURIComponent(ev.loc):'');
+}
+function _calOutlookUrl(ev){
+  return 'https://outlook.live.com/calendar/0/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent&subject='+encodeURIComponent(ev.title)+
+    '&startdt='+encodeURIComponent(ev.start.toISOString())+'&enddt='+encodeURIComponent(ev.end.toISOString())+'&body='+encodeURIComponent(ev.desc)+(ev.loc?'&location='+encodeURIComponent(ev.loc):'');
+}
+function _calIcsUrl(ev){
+  var u=String(CFG.icsUrl||'');if(!/^https:\/\//.test(u))return '';
+  return u+(u.indexOf('?')<0?'?':'&')+'t='+encodeURIComponent(ev.title)+'&s='+_calUtc(ev.start)+'&e='+_calUtc(ev.end)+'&d='+encodeURIComponent(ev.desc)+(ev.loc?'&l='+encodeURIComponent(ev.loc):'')+'&u='+encodeURIComponent(ev.uid);
+}
+function _calPlatform(){
+  var ua=navigator.userAgent||'';
+  if(/iPad|iPhone|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1))return 'ios';
+  if(/Android/i.test(ua))return 'android';
+  return 'other';
+}
+function _calOpen(url){
+  var w=null;try{w=window.open(url,'_blank');}catch(e){w=null;}
+  if(!w)window.location.href=url;
+}
+function _calFile(ev,preferData){
+  var ics=_calIcs(ev),name='rdv-'+(ev.date||'physioflow')+'.ics';
+  var file=null;try{file=new File([ics],name,{type:'text/calendar'});}catch(e){file=null;}
+  if(file&&navigator.canShare&&navigator.share){
+    try{
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file],title:ev.title}).catch(function(err){if(err&&err.name==='AbortError')return;_calDownload(ics,name,preferData);});
+        return;
+      }
+    }catch(e){}
+  }
+  _calDownload(ics,name,preferData);
+}
+function _calDownload(ics,name,preferData){
+  if(preferData){window.location.href='data:text/calendar;charset=utf-8,'+encodeURIComponent(ics);return;}
   var blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
-  a.href=url;a.download='rdv-physioflow-'+SEL.date+'.ics';
-  a.style.display='none';document.body.appendChild(a);a.click();
-  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url)},2000);
+  a.href=url;a.download=name;a.style.display='none';document.body.appendChild(a);a.click();
+  setTimeout(function(){try{document.body.removeChild(a);URL.revokeObjectURL(url);}catch(e){}},4000);
+  toast('📅 Fichier enregistré : ouvrez-le pour l\'ajouter à votre agenda');
+}
+function _calGo(kind){
+  var ev=window._calEvCur;if(!ev)return;
+  try{localStorage.setItem('pf_cal_pref',kind);}catch(e){}
+  closeCalSheet();
+  if(kind==='google'){_calOpen(_calGoogleUrl(ev));return;}
+  if(kind==='outlook'){_calOpen(_calOutlookUrl(ev));return;}
+  if(kind==='apple'){var u=_calIcsUrl(ev);if(u){window.location.href=u;return;}_calFile(ev,true);return;}
+  _calFile(ev,false);
+}
+function closeCalSheet(){var o=document.getElementById('calSheet');if(o)o.remove();}
+function openCalSheet(date,time,motif){
+  var ev=_calEv(date,time,motif);window._calEvCur=ev;
+  var pf=_calPlatform(),opts;
+  if(pf==='ios')opts=[['apple','🗓️ Calendrier de l\'iPhone','L\'agenda d\'origine de votre iPhone'],['google','📅 Google Agenda','Si vous utilisez Google Agenda'],['file','📲 Autre application d\'agenda','Fichier à ouvrir avec votre appli']];
+  else if(pf==='android')opts=[['google','📅 Google Agenda','L\'agenda Google de votre téléphone'],['file','📲 Autre agenda (Samsung, Outlook…)','Fichier à ouvrir avec votre appli d\'agenda'],['outlook','📧 Outlook (en ligne)','']];
+  else opts=[['google','📅 Google Agenda',''],['outlook','📧 Outlook',''],['file','💾 Fichier .ics','Apple Calendrier, Thunderbird…']];
+  var pref='';try{pref=localStorage.getItem('pf_cal_pref')||'';}catch(e){}
+  if(pref){opts.sort(function(a,b){return (a[0]===pref?-1:0)-(b[0]===pref?-1:0)});}
+  closeCalSheet();
+  var o=document.createElement('div');o.id='calSheet';
+  o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:flex-end;justify-content:center';
+  o.onclick=function(e){if(e.target===o)closeCalSheet();};
+  var dt=new Date(String(date)+'T00:00:00');
+  o.innerHTML='<div style="background:var(--surface,#fff);width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(0,0,0,.2)">'+
+    '<div style="font-weight:700;font-size:15px;margin-bottom:2px">📅 Ajouter à mon agenda</div>'+
+    '<div style="font-size:12px;color:var(--text2,#666);margin-bottom:12px">'+esc((motif&&motif.label)||'Séance')+' · '+DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()]+' à '+esc(time)+'</div>'+
+    opts.map(function(x){return '<button class="btn bs bw" style="margin-bottom:8px;padding:12px;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:2px" onclick="_calGo(\''+x[0]+'\')"><span style="font-size:14px;font-weight:700">'+x[1]+'</span>'+(x[2]?'<span style="font-size:11px;font-weight:400;opacity:.65">'+x[2]+'</span>':'')+'</button>';}).join('')+
+    '<button class="btn bw" style="margin-top:2px" onclick="closeCalSheet()">Annuler</button></div>';
+  document.body.appendChild(o);
 }
 
 /* ── Hook showStep: install gate + glows ── */
@@ -3328,7 +3506,7 @@ function checkUpcomingReminders(){
     var remKey=a.id+'_'+Math.floor(hoursLeft/2); /* unique per 2h window */
     if(remKey===lastReminder)return;
     if(hoursLeft>0&&hoursLeft<=24){
-      var motif=CFG.motifs?CFG.motifs.find(function(m){return m.id===a.motifId}):null;
+      var motif=_pfMotifById(a.motifId,a.date); /* v73 */
       var label=motif?motif.label:'Séance';
       var dt=new Date(a.date+'T00:00:00');
       var dateStr=DL[dt.getDay()]+' '+dt.getDate()+' '+MN[dt.getMonth()];
