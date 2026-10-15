@@ -182,7 +182,7 @@ button,a,.chip,.cal-day,.slot,[onclick]{cursor:pointer;-webkit-tap-highlight-col
   <div style="flex:1">
     <div class="logo"><b>Physio</b>Flow</div>
     <div class="logo-sub">Réservation en ligne</div>
-    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 74</div>
+    <div style="font-size:9px;color:var(--text3);margin-top:2px">version 75</div>
   </div>
   <button onclick="showCloseDialog()" style="font-size:11px;color:var(--text3);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:transparent">✕</button>
 </div>
@@ -1563,7 +1563,9 @@ function _pfMyLabel(){
   return l==='s'?'simple':(l==='c'?'complexe':'standard');
 }
 function _pfLabelAllows(motifId,time,dateKey){
-  var lv=CFG&&CFG.labelVis&&CFG.labelVis[motifId];
+  /* v75 — dates de l'agenda futur : ses propres règles par label, si le kiné en a défini */
+  var _fa=_pfFA(),_src=(_fa&&dateKey&&dateKey>=_fa.date&&_fa.labelVisOwn)?(_fa.labelVis||{}):(CFG&&CFG.labelVis);
+  var lv=_src&&_src[motifId];
   if(!lv||typeof lv!=='object')return true;
   var allowed;
   if(Object.prototype.hasOwnProperty.call(lv,time))allowed=lv[time];
@@ -1574,6 +1576,25 @@ function _pfLabelAllows(motifId,time,dateKey){
   }
   if(!Array.isArray(allowed))return true;
   return allowed.indexOf(_pfMyLabel())>=0;
+}
+/* v75 — DIFFICULTÉ DES HORAIRES : points de label (🟢 simple 1 · 🔵 standard 2 · 🟠 complexe 3).
+   CFG.labelCap[motifId]['HH:MM'] = {max:n, fill:bool} — agenda futur : futureAgenda.labelCap quand il a ses propres règles.
+   Un patient peut prendre l'horaire si les points déjà pris + les siens ≤ max. « Combler avec des traitements simples » :
+   un patient simple peut dépasser ce maximum, dans la limite des places. Heures typiques seulement. */
+function _pfLabelPts(l){return l==='simple'?1:(l==='complexe'?3:2);}
+function _pfApPts(a){var p=a?+a.pts:0;return (p>=1&&p<=3)?p:2;}
+function _pfCapFor(motifId,time,dateKey){
+  var fa=_pfFA(),src=(fa&&dateKey&&dateKey>=fa.date&&fa.labelVisOwn)?(fa.labelCap||{}):(CFG&&CFG.labelCap);
+  var c=src&&src[motifId]&&src[motifId][time];
+  return (c&&typeof c==='object'&&+c.max>0)?c:null;
+}
+function _pfPtsOk(dateKey,t,motif,dayApts,pts){
+  var c=motif&&_pfCapFor(motif.id,t,dateKey);if(!c)return true;
+  if((motif.times||[]).map(_pfT).indexOf(t)<0)return true;
+  var used=0;(dayApts||[]).forEach(function(a){if(_pfOcc(a)&&a.type!=='absence'&&a.motifId===motif.id&&_pfT(a.time)===t)used+=_pfApPts(a);});
+  var me=pts||_pfLabelPts(_pfMyLabel());
+  if(used+me<=+c.max)return true;
+  return !!(c.fill&&me===1);
 }
 /* ═══ v73 — heures toujours au format HH:MM (« 8:30 » → « 08:30 ») : sinon un RDV pris
    à « 8:30 » ne serait pas compté sur le créneau « 08:30 » ═══ */
@@ -1818,7 +1839,7 @@ function checkDateHasSlots(dateKey){
     if(_fx73?(_sl73.getTime()<=Date.now()):(_sl73<_minT73||_dayOut73))continue;
     /* v64 — même restriction pour le grisage du calendrier */
     if(window._reschedExtraOnly&&window._rescheduleOldApId&&!_isX)continue;
-    if(bookingsAtSlot<thisMax&&!generalOverlap&&slotVisibleToMe(dateKey,t,motif.id)
+    if(bookingsAtSlot<thisMax&&!generalOverlap&&slotVisibleToMe(dateKey,t,motif.id)&&_pfPtsOk(dateKey,t,motif,dayApts) /* v75 */
        &&(isExoSlot(dateKey,t,motif.id)||!slotBlockedByBreak(dateKey,t,motif,dayApts)))freeCount++;
   }
   return freeCount>0;
@@ -2548,7 +2569,8 @@ function renderSlots(){
     var restrictedOut=(window._reschedExtraOnly&&window._rescheduleOldApId&&!isExtra);
     var _forced=!isExtra&&isForcedExo(SEL.date,t,motif.id); /* v70 */
     if(_forced)generalOverlap=_forcedAbsOverlap(SEL.date,t,motif,dayApts);
-    var taken=bookingsAtSlot>=thisMaxSlots || generalOverlap || hiddenForMe || brkBlocked || restrictedOut;
+    var taken=bookingsAtSlot>=thisMaxSlots || generalOverlap || hiddenForMe || brkBlocked || restrictedOut
+      || !_pfPtsOk(SEL.date,t,motif,dayApts); /* v75 : difficulté de l'horaire (points de label) */
     /* Check if too soon */
     var slotDate=new Date(selDate);
     slotDate.setHours(Math.floor(tm/60),tm%60,0,0);
@@ -2651,6 +2673,7 @@ function doBook(){
   if(!isExtraSlot(SEL.date,SEL.time,SEL.motif.id)&&isForcedExo(SEL.date,SEL.time,SEL.motif.id))generalOverlap=_forcedAbsOverlap(SEL.date,SEL.time,SEL.motif,dayApts); /* v70 */
   var conflict=sameSlotCount>=thisMaxSlots || generalOverlap;
   if(conflict){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
+  if(!_pfPtsOk(SEL.date,SEL.time,SEL.motif,dayApts)){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;} /* v75 : points de label */
   /* Respect per-patient slot visibility (slot may be restricted/hidden for this patient) */
   if(!slotVisibleToMe(SEL.date,SEL.time,SEL.motif.id)){toast('Ce créneau vient d\'être pris. Choisissez un autre.');goStep(3);return;}
   /* v60 — re-vérification du break au moment de valider */
@@ -2713,6 +2736,7 @@ function doBook(){
     patientId:booking.patientId,
     patientName:ln+' '+fn,
     patientPhone:ph,
+    pts:_pfLabelPts(_pfMyLabel()), /* v75 : points de label du patient (difficulté des horaires) */
     cancelled:false,
     type:'rdv',
     source:'patient',
@@ -2726,6 +2750,9 @@ function doBook(){
     /* v73 — même créneau, même motif : places encore libres au moment d'écrire ? */
     var _n=arr.filter(function(x){return _pfOcc(x)&&x.type!=='absence'&&x.id!==aptEntry.id&&x.date===aptEntry.date&&_pfT(x.time)===aptEntry.time&&x.motifId===aptEntry.motifId&&!(_isResched&&x.id===window._rescheduleOldApId)}).length;
     if(_n>=_txMax&&!arr.some(function(x){return x&&x.id===aptEntry.id})){_txFull=true;return;}
+    /* v75 — points de label, revérifiés au moment d'écrire */
+    var _dA=arr.filter(function(x){return _pfOcc(x)&&x.id!==aptEntry.id&&x.date===aptEntry.date&&!(_isResched&&x.id===window._rescheduleOldApId)});
+    if(!arr.some(function(x){return x&&x.id===aptEntry.id})&&!_pfPtsOk(aptEntry.date,aptEntry.time,SEL.motif,_dA,aptEntry.pts)){_txFull=true;return;}
     _txFull=false;
     if(!arr.some(function(x){return x&&x.id===aptEntry.id}))arr.push(aptEntry);
     return arr;
